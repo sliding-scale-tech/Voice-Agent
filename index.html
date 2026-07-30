@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LEASELINE — Who Answers?</title>
+<meta name="description" content="Someone is looking for an apartment right now. They're calling you — or they're about to call your competitor." />
+<link rel="preconnect" href="https://api.fontshare.com" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://api.fontshare.com/v2/css?f%5B%5D=cabinet-grotesk@900,800&f%5B%5D=satoshi@400,500,700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ============ SCROLL PROGRESS ============ -->
+<div class="scroll-progress" aria-hidden="true"><span id="progress-fill"></span></div>
+
+<!-- ============ AMBIENT WASH ============ -->
+<div class="fx-wash" aria-hidden="true"></div>
+
+<!-- ============ TOASTS ============ -->
+<div class="toast-stack" id="toast-stack" role="status" aria-live="polite" aria-atomic="false"></div>
+
+<!-- ============ STICKY HEADER ============ -->
+<header class="site-header">
+  <div class="nav glass">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h2.2a1.5 1.5 0 0 1 1.45 1.1l.8 2.9a1.5 1.5 0 0 1-.6 1.62l-1.3.9a12 12 0 0 0 5.43 5.43l.9-1.3a1.5 1.5 0 0 1 1.62-.6l2.9.8A1.5 1.5 0 0 1 20 16.3v2.2A1.5 1.5 0 0 1 18.5 20h-.4A14.1 14.1 0 0 1 4 5.9Z"/>
+        </svg>
+      </span>
+      <span class="brand-name">LEASELINE</span>
+    </a>
+
+    <nav class="nav-pill" aria-label="Primary">
+      <a href="#how-it-works">HOW IT WORKS</a>
+      <a href="#pricing">PRICING</a>
+    </nav>
+
+    <div class="nav-right">
+      <span class="status-chip">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span class="status-label">ANSWERING NOW</span>
+      </span>
+      <a href="#book" class="btn btn-cyan" data-toast="success">BOOK A CALL</a>
+    </div>
+
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+      <span aria-hidden="true"></span><span aria-hidden="true"></span>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="hero-aura" aria-hidden="true"></div>
+
+    <div class="hero-shapes" id="hero-shapes" aria-hidden="true">
+      <span class="shape glass s1"></span>
+      <span class="shape glass s2"></span>
+      <span class="shape glass s3"></span>
+      <span class="shape glass s4"></span>
+      <span class="shape glass s5"></span>
+      <span class="shape glass s6"></span>
+    </div>
+
+    <div class="wrap hero-inner">
+      <p class="eyebrow hero-eyebrow reveal">It's <span class="eyebrow-time">2:13 AM</span>, and a prospect wants to rent.</p>
+      <h1 class="hero-title reveal" data-delay="1">WHO ANSWERS?</h1>
+      <p class="hero-sub reveal" data-delay="2">Someone is looking for an apartment right now. They're calling you — or they're about to call your competitor.</p>
+      <div class="hero-cta reveal" data-delay="3">
+        <a href="#book" class="btn btn-solid" data-toast="info">
+          WATCH IT ANSWER A CALL
+          <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7"/></svg>
+        </a>
+        <a href="#how-it-works" class="btn btn-ghost">SEE HOW IT WORKS</a>
+      </div>
+    </div>
+
+    <div class="hero-fade" aria-hidden="true"></div>
+  </section>
+
+  <!-- ============ STATS ============ -->
+  <section class="section stats-section" id="stats">
+    <div class="wrap">
+      <p class="lede reveal">Most rental inquiries come in after your office closes. If nobody's there to answer, the lead doesn't wait around — they call the next name on the list.</p>
+
+      <div class="stats-grid">
+        <div class="stat glass reveal" data-delay="1">
+          <span class="stat-num" data-count="76" data-suffix="%">0%</span>
+          <span class="stat-label c-cyan">OF INQUIRIES ARRIVE AFTER HOURS</span>
+        </div>
+        <div class="stat glass reveal" data-delay="2">
+          <span class="stat-num" data-count="21" data-suffix="X">0X</span>
+          <span class="stat-label c-magenta">MORE LIKELY TO CONVERT VS. A 30-MIN CALLBACK</span>
+        </div>
+        <div class="stat glass reveal" data-delay="3">
+          <span class="stat-num" data-count="24" data-suffix="/7">0/7</span>
+          <span class="stat-label c-lime">COVERAGE, NO MISSED CALLS</span>
+        </div>
+        <div class="stat glass reveal" data-delay="4">
+          <span class="stat-num" data-count="1.5" data-decimals="1" data-prefix="&lt;" data-suffix="S">&lt;0.0S</span>
+          <span class="stat-label c-cyan">RESPONSE TIME, EVERY CALL</span>
+        </div>
+      </div>
+
+      <div class="logo-row reveal">
+        <p class="logo-row-label">WORKS WITH WHAT YOU ALREADY USE</p>
+        <ul class="logos">
+          <li>Google Sheets</li>
+          <li>Buildium</li>
+          <li>Yardi Breeze</li>
+          <li>AppFolio</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DASHBOARD SIMULATOR ============ -->
+  <section class="section dash-section" id="how-it-works">
+    <div class="wrap">
+      <header class="section-head">
+        <h2 class="section-title reveal">EVERY CALL, LOGGED. EVERY LEAD, TRACKED.</h2>
+        <p class="lede lede-tight reveal" data-delay="1">Here's what happens when someone calls.</p>
+      </header>
+
+      <div class="metric-grid">
+        <div class="metric glass reveal" data-delay="1">
+          <span class="metric-num" data-count="47">0</span>
+          <span class="metric-label c-cyan">CALLS ANSWERED TODAY</span>
+        </div>
+        <div class="metric glass reveal" data-delay="2">
+          <span class="metric-num" data-count="12">0</span>
+          <span class="metric-label c-lime">TOURS BOOKED</span>
+        </div>
+        <div class="metric glass reveal" data-delay="3">
+          <span class="metric-num" data-count="1.2" data-decimals="1" data-suffix="S">0.0S</span>
+          <span class="metric-label c-magenta">AVG. RESPONSE TIME</span>
+        </div>
+        <div class="metric glass reveal" data-delay="4">
+          <span class="metric-num" data-count="5">0</span>
+          <span class="metric-label c-cyan">SAME 5 CRITERIA. EVERY CALLER.</span>
+        </div>
+      </div>
+
+      <p class="fine-print reveal">Sample data for illustration.</p>
+
+      <div class="dash-split">
+        <!-- CALL LOG -->
+        <div class="panel glass reveal" data-delay="1">
+          <div class="panel-head">
+            <span class="panel-title">CALL LOG</span>
+            <span class="panel-live"><span class="status-dot" aria-hidden="true"></span>LIVE</span>
+          </div>
+          <div class="table-scroll">
+            <table class="log">
+              <thead>
+                <tr>
+                  <th>TIMESTAMP</th>
+                  <th>CALLER</th>
+                  <th>INTENT</th>
+                  <th class="ta-r">OUTCOME</th>
+                </tr>
+              </thead>
+              <tbody id="log-body">
+                <tr><td class="cell-num">2:13 AM</td><td class="cell-num">+1 (415) ···· 0192</td><td>2BR, move-in August</td><td class="ta-r"><span class="badge b-green">TOUR BOOKED</span></td></tr>
+                <tr><td class="cell-num">1:52 AM</td><td class="cell-num">+1 (206) ···· 4471</td><td>Pet policy question</td><td class="ta-r"><span class="badge b-gray">LOGGED ONLY</span></td></tr>
+                <tr><td class="cell-num">12:41 AM</td><td class="cell-num">+1 (312) ···· 8830</td><td>Maintenance — leak</td><td class="ta-r"><span class="badge b-amber">ESCALATED</span></td></tr>
+                <tr><td class="cell-num">11:38 PM</td><td class="cell-num">+1 (503) ···· 2205</td><td>Studio, move-in ASAP</td><td class="ta-r"><span class="badge b-green">TOUR BOOKED</span></td></tr>
+                <tr><td class="cell-num">10:57 PM</td><td class="cell-num">+1 (702) ···· 6614</td><td>3BR on a $900 budget</td><td class="ta-r"><span class="badge b-red">DISQUALIFIED</span></td></tr>
+                <tr><td class="cell-num">10:04 PM</td><td class="cell-num">+1 (617) ···· 9078</td><td>1BR, needs parking</td><td class="ta-r"><span class="badge b-green">TOUR BOOKED</span></td></tr>
+                <tr><td class="cell-num">9:19 PM</td><td class="cell-num">+1 (786) ···· 3319</td><td>Application status</td><td class="ta-r"><span class="badge b-amber">ESCALATED</span></td></tr>
+                <tr><td class="cell-num">8:46 PM</td><td class="cell-num">+1 (971) ···· 5527</td><td>2BR, move-in September</td><td class="ta-r"><span class="badge b-gray">LOGGED ONLY</span></td></tr>
+                <tr><td class="cell-num">7:33 PM</td><td class="cell-num">+1 (214) ···· 1140</td><td>No proof of income</td><td class="ta-r"><span class="badge b-red">DISQUALIFIED</span></td></tr>
+                <tr><td class="cell-num">6:21 PM</td><td class="cell-num">+1 (404) ···· 7762</td><td>3BR, move-in August</td><td class="ta-r"><span class="badge b-green">TOUR BOOKED</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SPARKLINE -->
+        <aside class="panel glass reveal" data-delay="2">
+          <div class="panel-head">
+            <span class="panel-title">CALLS PER HOUR</span>
+          </div>
+          <div class="spark-body">
+            <div class="spark-figure" id="spark-figure">
+              <svg viewBox="0 0 300 150" preserveAspectRatio="none" role="img" aria-label="Calls per hour, peaking between 6PM and 11PM">
+                <defs>
+                  <linearGradient id="sparkStroke" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#0f6e67"/>
+                    <stop offset="100%" stop-color="#2f5fd0"/>
+                  </linearGradient>
+                  <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#2f5fd0" stop-opacity="0.16"/>
+                    <stop offset="100%" stop-color="#2f5fd0" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <path id="spark-area" class="spark-area" fill="url(#sparkFill)"
+                  d="M0,132 L25,128 L50,121 L75,124 L100,112 L125,116 L150,98 L175,74 L200,52 L225,30 L250,20 L275,42 L300,62 L300,150 L0,150 Z"/>
+                <path id="spark-line" class="spark-line" fill="none" stroke="url(#sparkStroke)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                  d="M0,132 L25,128 L50,121 L75,124 L100,112 L125,116 L150,98 L175,74 L200,52 L225,30 L250,20 L275,42 L300,62"/>
+                <circle class="spark-tip" cx="250" cy="20" r="3.4" fill="#2f5fd0" stroke="#ffffff" stroke-width="2"/>
+              </svg>
+            </div>
+            <p class="spark-caption">PEAK HOURS: 6PM–11PM</p>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PRICING ============ -->
+  <section class="section pricing-section" id="pricing">
+    <div class="wrap">
+      <div class="pricing-grid">
+
+        <!-- TIER 1 -->
+        <article class="tier glass reveal" data-delay="1">
+          <h3 class="tier-name">7-DAY PILOT</h3>
+          <p class="tier-price">Custom quote</p>
+          <p class="tier-tagline">See it work before you commit to anything.</p>
+          <ul class="tier-list">
+            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>One working AI agent, built for your property</span></li>
+            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Real calls, real qualification, real dashboard</span></li>
+            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>No contract required</span></li>
+          </ul>
+        </article>
+
+        <!-- TIER 2 — FEATURED -->
+        <article class="tier tier-featured glass reveal" data-delay="2">
+          <span class="tier-badge">MOST COMMON</span>
+          <h3 class="tier-name">FULL ROLLOUT</h3>
+          <p class="tier-price">$3,000–$7,000 setup + $4–$8/unit/month</p>
+          <p class="tier-tagline">Every call answered. Every lead logged. Every month.</p>
+          <ul class="tier-list">
+            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>24/7 coverage across your whole portfolio</span></li>
+            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Connects to Sheets, Buildium, or Yardi Breeze</span></li>
+            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Same 5 qualification criteria, every caller</span></li>
+            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Full dashboard access</span></li>
+          </ul>
+          <a href="#book" class="btn btn-cyan btn-block" data-toast="success">BOOK A CALL</a>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CLOSING CTA ============ -->
+  <section class="section closing-section" id="book">
+    <div class="closing-aura" aria-hidden="true"></div>
+    <div class="wrap">
+      <div class="closing glass reveal">
+        <h2 class="closing-title">SOMEONE'S CALLING RIGHT NOW.</h2>
+        <p class="closing-sub">Watch it handle a real leasing call before you commit to anything.</p>
+        <a href="#book" class="btn btn-solid btn-lg" data-toast="info">
+          WATCH IT ANSWER A CALL
+          <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <span class="footer-brand">LEASELINE</span>
+    <span class="footer-meta">
+      <span class="status-dot" aria-hidden="true"></span>
+      ANSWERING NOW
+    </span>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
