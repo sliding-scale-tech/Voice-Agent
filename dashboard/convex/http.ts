@@ -193,17 +193,20 @@ http.route({
       .filter(Boolean)
       .join(" ");
 
+    // Disabled: SMS alert to staff on escalation — turned off per request. The dashboard still
+    // marks the call as escalated below; only the outbound text is skipped. Re-enable by
+    // uncommenting this block.
     const staffNumber = await ctx.runQuery(internal.orgSettings.staffPhoneNumberInternal, {});
-    let notified = false;
+    const notified = false;
     if (staffNumber) {
       try {
-        await ctx.runAction(internal.notifications.sendEscalationAlert, {
-          to: staffNumber,
-          reason,
-          summary: fullSummary,
-          callerPhone: callerPhone ?? "unknown",
-        });
-        notified = true;
+        // await ctx.runAction(internal.notifications.sendEscalationAlert, {
+        //   to: staffNumber,
+        //   reason,
+        //   summary: fullSummary,
+        //   callerPhone: callerPhone ?? "unknown",
+        // });
+        // notified = true;
       } catch {
         // Logged via the dashboard regardless; SMS delivery failure shouldn't break the call.
       }

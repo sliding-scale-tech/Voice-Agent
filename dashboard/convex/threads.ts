@@ -153,19 +153,22 @@ export const escalate = internalAction({
       reason: args.reason,
     });
 
-    const staffNumber = await ctx.runQuery(internal.orgSettings.staffPhoneNumberInternal, {});
-    if (staffNumber) {
-      const channelLabel = thread.channel === "whatsapp" ? "WhatsApp" : "Text";
-      await twilio
-        .sendSms(
-          staffNumber,
-          `${channelLabel} escalation: ${args.reason}. Reply to ${thread.customerPhone} ` +
-            `(${thread.channel}) from the dashboard.`,
-        )
-        .catch(() => {
-          // The thread is still visibly escalated in the dashboard even if the SMS ping fails.
-        });
-    }
+    // Disabled: SMS alert to staff on escalation — turned off per request. The thread is still
+    // marked escalated above and visible in /messages; only the outbound text is skipped.
+    // Re-enable by uncommenting this block.
+    // const staffNumber = await ctx.runQuery(internal.orgSettings.staffPhoneNumberInternal, {});
+    // if (staffNumber) {
+    //   const channelLabel = thread.channel === "whatsapp" ? "WhatsApp" : "Text";
+    //   await twilio
+    //     .sendSms(
+    //       staffNumber,
+    //       `${channelLabel} escalation: ${args.reason}. Reply to ${thread.customerPhone} ` +
+    //         `(${thread.channel}) from the dashboard.`,
+    //     )
+    //     .catch(() => {
+    //       // The thread is still visibly escalated in the dashboard even if the SMS ping fails.
+    //     });
+    // }
   },
 });
 
