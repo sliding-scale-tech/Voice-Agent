@@ -144,18 +144,20 @@ http.route({
       tourConfirmed: true,
     });
 
-    const property = await ctx.runQuery(internal.properties.currentInternal, {});
-    let smsSent = true;
+    // Disabled: tour confirmation SMS to the customer — turned off per request. The tour is
+    // still captured above and visible in the dashboard; only the outbound text is skipped.
+    // Re-enable by uncommenting this block (and the property lookup it needs).
+    // const property = await ctx.runQuery(internal.properties.currentInternal, {});
+    const smsSent = false;
     try {
-      await ctx.runAction(internal.notifications.sendTourConfirmation, {
-        to: callerPhone,
-        propertyName: property.name,
-        slot: preferredSlot,
-      });
+      // await ctx.runAction(internal.notifications.sendTourConfirmation, {
+      //   to: callerPhone,
+      //   propertyName: property.name,
+      //   slot: preferredSlot,
+      // });
     } catch {
       // The tour is still captured even if the SMS fails to send — the agent should not
       // tell the caller the request failed over a texting problem.
-      smsSent = false;
     }
 
     return Response.json({ confirmed: true, sms_sent: smsSent });
