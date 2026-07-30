@@ -333,13 +333,14 @@ export const ingestFromWebhook = internalMutation({
       await ctx.db.patch(conv._id, { intent, outcome, summary: finalSummary });
     }
 
-    // Text staff a summary after every call, not just escalations — a mutation can't reach
-    // the network itself, so the actual send is scheduled as an action.
-    await ctx.scheduler.runAfter(0, internal.notifications.sendCallSummary, {
-      summary: finalSummary ?? "No summary available.",
-      callerNumber: callerNumber ?? "unknown",
-      durationSec: durationSec ?? Math.round((endedAt - startedAt) / 1000),
-    });
+    // Disabled: texting staff a summary after every call (not just escalations) — turned off
+    // per request. Escalation alerts (notifications.sendEscalationAlert) are unaffected and
+    // still fire. Re-enable by uncommenting this block.
+    // await ctx.scheduler.runAfter(0, internal.notifications.sendCallSummary, {
+    //   summary: finalSummary ?? "No summary available.",
+    //   callerNumber: callerNumber ?? "unknown",
+    //   durationSec: durationSec ?? Math.round((endedAt - startedAt) / 1000),
+    // });
 
     // Roll usage the same way the browser path does on `end`, guarded so a webhook retry or
     // a call the browser already ended doesn't double-count minutes.
