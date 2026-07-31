@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LEASELINE — Who Answers?</title>
-<meta name="description" content="Someone is looking for an apartment right now. They're calling you — or they're about to call your competitor." />
+<title>LEASELINE. Who Answers?</title>
+<meta name="description" content="Someone is looking for an apartment right now. They're calling you. Or they're about to call your competitor." />
 <link rel="preconnect" href="https://api.fontshare.com" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -72,9 +72,9 @@
     <div class="wrap hero-inner">
       <p class="eyebrow hero-eyebrow reveal">It's <span class="eyebrow-time">2:13 AM</span>, and a prospect wants to rent.</p>
       <h1 class="hero-title reveal" data-delay="1">WHO ANSWERS?</h1>
-      <p class="hero-sub reveal" data-delay="2">Someone is looking for an apartment right now. They're calling you — or they're about to call your competitor.</p>
+      <p class="hero-sub reveal" data-delay="2">Someone is looking for an apartment right now. They're calling you. Or they're about to call your competitor.</p>
       <div class="hero-cta reveal" data-delay="3">
-        <a href="#book" class="btn btn-solid" data-toast="info">
+        <a href="#book" class="btn btn-solid" data-demo-open>
           WATCH IT ANSWER A CALL
           <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7"/></svg>
         </a>
@@ -88,7 +88,7 @@
   <!-- ============ STATS ============ -->
   <section class="section stats-section" id="stats">
     <div class="wrap">
-      <p class="lede reveal">Most rental inquiries come in after your office closes. If nobody's there to answer, the lead doesn't wait around — they call the next name on the list.</p>
+      <p class="lede reveal">Most rental inquiries come in after your office closes. If nobody's there to answer, the lead doesn't wait around. The owner whose unit just sat vacant an extra month starts wondering what they're paying you for.</p>
 
       <div class="stats-grid">
         <div class="stat glass reveal" data-delay="1">
@@ -107,6 +107,41 @@
           <span class="stat-num" data-count="1.5" data-decimals="1" data-prefix="&lt;" data-suffix="S">&lt;0.0S</span>
           <span class="stat-label c-cyan">RESPONSE TIME, EVERY CALL</span>
         </div>
+      </div>
+
+      <!-- lead decay timeline -->
+      <div class="decay reveal">
+        <p class="decay-caption">Every unanswered minute makes the next call less likely to land.</p>
+        <ol class="decay-track">
+          <li class="decay-step">
+            <span class="decay-node" aria-hidden="true"></span>
+            <span class="decay-text">
+              <span class="decay-label">Inquiry lands</span>
+              <span class="decay-value">High intent</span>
+            </span>
+          </li>
+          <li class="decay-step">
+            <span class="decay-node" aria-hidden="true"></span>
+            <span class="decay-text">
+              <span class="decay-label">5 min</span>
+              <span class="decay-value">Still hot. 21x more likely to convert.</span>
+            </span>
+          </li>
+          <li class="decay-step">
+            <span class="decay-node" aria-hidden="true"></span>
+            <span class="decay-text">
+              <span class="decay-label">30 min</span>
+              <span class="decay-value">Cooling</span>
+            </span>
+          </li>
+          <li class="decay-step">
+            <span class="decay-node" aria-hidden="true"></span>
+            <span class="decay-text">
+              <span class="decay-label">Next morning</span>
+              <span class="decay-value">Gone. Calling your competitor.</span>
+            </span>
+          </li>
+        </ol>
       </div>
 
       <div class="logo-row reveal">
@@ -170,7 +205,7 @@
               <tbody id="log-body">
                 <tr><td class="cell-num">2:13 AM</td><td class="cell-num">+1 (415) ···· 0192</td><td>2BR, move-in August</td><td class="ta-r"><span class="badge b-green">TOUR BOOKED</span></td></tr>
                 <tr><td class="cell-num">1:52 AM</td><td class="cell-num">+1 (206) ···· 4471</td><td>Pet policy question</td><td class="ta-r"><span class="badge b-gray">LOGGED ONLY</span></td></tr>
-                <tr><td class="cell-num">12:41 AM</td><td class="cell-num">+1 (312) ···· 8830</td><td>Maintenance — leak</td><td class="ta-r"><span class="badge b-amber">ESCALATED</span></td></tr>
+                <tr><td class="cell-num">12:41 AM</td><td class="cell-num">+1 (312) ···· 8830</td><td>Maintenance, reported leak</td><td class="ta-r"><span class="badge b-amber">ESCALATED</span></td></tr>
                 <tr><td class="cell-num">11:38 PM</td><td class="cell-num">+1 (503) ···· 2205</td><td>Studio, move-in ASAP</td><td class="ta-r"><span class="badge b-green">TOUR BOOKED</span></td></tr>
                 <tr><td class="cell-num">10:57 PM</td><td class="cell-num">+1 (702) ···· 6614</td><td>3BR on a $900 budget</td><td class="ta-r"><span class="badge b-red">DISQUALIFIED</span></td></tr>
                 <tr><td class="cell-num">10:04 PM</td><td class="cell-num">+1 (617) ···· 9078</td><td>1BR, needs parking</td><td class="ta-r"><span class="badge b-green">TOUR BOOKED</span></td></tr>
@@ -212,40 +247,152 @@
           </div>
         </aside>
       </div>
+
+      <!-- compliance note -->
+      <div class="compliance reveal">
+        <h3 class="compliance-title">Every caller gets the same shot.</h3>
+        <p class="compliance-body">Human leasing agents hear a voice, a name, an accent. Even without meaning to, that can shape who gets invited to tour and who gets told there's nothing available. It's not hypothetical: SafeRent settled for $2.275M over exactly this kind of algorithmic screening bias. This AI only ever looks at five things: unit type, move-in date, budget, pets, and contact info. Nothing else factors in, for any caller, ever.</p>
+      </div>
+
     </div>
   </section>
 
   <!-- ============ PRICING ============ -->
   <section class="section pricing-section" id="pricing">
     <div class="wrap">
-      <div class="pricing-grid">
 
-        <!-- TIER 1 -->
-        <article class="tier glass reveal" data-delay="1">
-          <h3 class="tier-name">7-DAY PILOT</h3>
-          <p class="tier-price">Custom quote</p>
-          <p class="tier-tagline">See it work before you commit to anything.</p>
-          <ul class="tier-list">
-            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>One working AI agent, built for your property</span></li>
-            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Real calls, real qualification, real dashboard</span></li>
-            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>No contract required</span></li>
+      <!-- billing toggle -->
+      <div class="billing-toggle reveal">
+        <span class="billing-label billing-label-ink" id="billing-monthly">Monthly</span>
+        <button class="billing-switch" type="button" id="billing-switch"
+                role="switch" aria-checked="false" aria-labelledby="billing-annually">
+          <span class="billing-knob" aria-hidden="true"></span>
+        </button>
+        <span class="billing-label" id="billing-annually">Annually</span>
+        <span class="billing-badge">-20%</span>
+      </div>
+
+      <div class="price-grid">
+
+        <!-- PILOT -->
+        <article class="pcard reveal" data-delay="1">
+          <h3 class="pcard-name">Pilot</h3>
+          <p class="pcard-price">
+            <span class="pcard-value">$0</span><span class="pcard-suffix">for 7 days</span>
+          </p>
+          <ul class="pcard-list">
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>One working AI agent, built for your property</span></li>
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>Real calls, real qualification, real dashboard</span></li>
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>No contract required</span></li>
           </ul>
+          <a href="#book" class="pcard-btn" data-toast="success">Book a call</a>
         </article>
 
-        <!-- TIER 2 — FEATURED -->
-        <article class="tier tier-featured glass reveal" data-delay="2">
-          <span class="tier-badge">MOST COMMON</span>
-          <h3 class="tier-name">FULL ROLLOUT</h3>
-          <p class="tier-price">$3,000–$7,000 setup + $4–$8/unit/month</p>
-          <p class="tier-tagline">Every call answered. Every lead logged. Every month.</p>
-          <ul class="tier-list">
-            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>24/7 coverage across your whole portfolio</span></li>
-            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Connects to Sheets, Buildium, or Yardi Breeze</span></li>
-            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Same 5 qualification criteria, every caller</span></li>
-            <li><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Full dashboard access</span></li>
+        <!-- STANDARD (FEATURED) -->
+        <article class="pcard pcard-featured reveal" data-delay="2">
+          <span class="pcard-badge">Most popular</span>
+          <h3 class="pcard-name">Standard</h3>
+          <p class="pcard-note">for portfolios of 100–500 units</p>
+          <p class="pcard-price">
+            <span class="pcard-value" id="std-price">$6</span><span class="pcard-suffix">/unit/mo</span>
+          </p>
+          <p class="pcard-caption" id="std-caption">+ $3,000–$7,000 one-time setup</p>
+          <ul class="pcard-list">
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>24/7 coverage across your whole portfolio</span></li>
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>Connects to Sheets, Buildium, or Yardi Breeze</span></li>
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>Same 5 qualification criteria, every caller</span></li>
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>Full dashboard access</span></li>
           </ul>
-          <a href="#book" class="btn btn-cyan btn-block" data-toast="success">BOOK A CALL</a>
+          <a href="#book" class="pcard-btn" data-toast="success">Book a call</a>
         </article>
+
+        <!-- ENTERPRISE -->
+        <article class="pcard reveal" data-delay="3">
+          <h3 class="pcard-name">Enterprise</h3>
+          <p class="pcard-note">for portfolios of 500+ units</p>
+          <p class="pcard-price">
+            <span class="pcard-value">Custom</span><span class="pcard-suffix">pricing</span>
+          </p>
+          <ul class="pcard-list">
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>Multiple properties, one account</span></li>
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>Dedicated onboarding support</span></li>
+            <li><svg class="pcard-check" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></svg><span>Custom integration work included</span></li>
+          </ul>
+          <a href="#book" class="pcard-btn" data-toast="success">Book a call</a>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FAQ ============ -->
+  <section class="section faq-section" id="faq">
+    <div class="wrap">
+      <div class="faq-list">
+
+        <details class="faq-item reveal" data-delay="1">
+          <summary class="faq-q">
+            <span class="faq-q-text">Why not just use a spreadsheet or a virtual assistant?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>A spreadsheet doesn't answer the phone at 2am, and a VA either isn't awake or costs significantly more once you actually staff for 24/7 coverage. This handles every call the moment it comes in, applies the same 5 qualifying questions every time, and logs the result automatically. No shift schedule, no coverage gaps.</p></div>
+        </details>
+
+        <details class="faq-item reveal" data-delay="1">
+          <summary class="faq-q">
+            <span class="faq-q-text">What if it can't understand a caller?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>After two failed attempts to clarify, it hands off to your team instead of guessing or looping forever.</p></div>
+        </details>
+
+        <details class="faq-item reveal" data-delay="2">
+          <summary class="faq-q">
+            <span class="faq-q-text">What if someone asks something it doesn't know, like unit-specific details?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>It tells them someone will follow up, logs the question, and doesn't make anything up.</p></div>
+        </details>
+
+        <details class="faq-item reveal" data-delay="2">
+          <summary class="faq-q">
+            <span class="faq-q-text">What if there's no unit that matches what they're looking for?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>It offers a waitlist or the closest available alternative. It doesn't just say no and hang up.</p></div>
+        </details>
+
+        <details class="faq-item reveal" data-delay="3">
+          <summary class="faq-q">
+            <span class="faq-q-text">What about existing tenants calling about maintenance or an emergency?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>Routed straight to a human, every time. This isn't a maintenance line, and it doesn't pretend to be one.</p></div>
+        </details>
+
+        <details class="faq-item reveal" data-delay="3">
+          <summary class="faq-q">
+            <span class="faq-q-text">What if your system or our property management software goes down mid-call?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>It still takes the caller's info manually and lets them know someone will follow up. That counts as a handled call in your dashboard, not a silent drop.</p></div>
+        </details>
+
+        <details class="faq-item reveal" data-delay="4">
+          <summary class="faq-q">
+            <span class="faq-q-text">Will this replace my leasing team?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>No. It handles the repetitive first conversation, the questions every caller asks, so your team spends their time touring qualified prospects and closing leases, not fielding calls at midnight or repeating the same qualifying questions forty times a week.</p></div>
+        </details>
+
+        <details class="faq-item reveal" data-delay="4">
+          <summary class="faq-q">
+            <span class="faq-q-text">What are the next steps if we want to move forward?</span>
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="faq-a"><p>Book a call, tell us about your portfolio, and we configure a working AI agent trained on your actual listings within about a week. You watch it handle real calls in your dashboard before any contract gets signed.</p></div>
+        </details>
 
       </div>
     </div>
@@ -258,7 +405,7 @@
       <div class="closing glass reveal">
         <h2 class="closing-title">SOMEONE'S CALLING RIGHT NOW.</h2>
         <p class="closing-sub">Watch it handle a real leasing call before you commit to anything.</p>
-        <a href="#book" class="btn btn-solid btn-lg" data-toast="info">
+        <a href="#book" class="btn btn-solid btn-lg" data-demo-open>
           WATCH IT ANSWER A CALL
           <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7"/></svg>
         </a>
@@ -277,6 +424,67 @@
     </span>
   </div>
 </footer>
+
+<!-- ============================================================
+     CALL DEMO MODAL
+     Transcript text and criteria labels are PLACEHOLDERS.
+     Replace them in the DEMO_SCRIPT / CRITERIA arrays in script.js.
+     ============================================================ -->
+<div class="demo-overlay" id="demo-overlay" hidden>
+  <div class="demo-backdrop" data-demo-close></div>
+
+  <div class="demo-card" role="dialog" aria-modal="true" aria-labelledby="demo-title" id="demo-card">
+
+    <header class="demo-head">
+      <div class="demo-head-main">
+        <span class="demo-live">
+          <span class="demo-live-dot" aria-hidden="true"></span>
+          <span id="demo-live-label">Incoming call</span>
+        </span>
+        <h2 class="demo-title" id="demo-title">Call demo</h2>
+      </div>
+      <button class="demo-close" type="button" data-demo-close aria-label="Close call demo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </header>
+
+    <div class="demo-body">
+
+      <!-- TRANSCRIPT -->
+      <section class="demo-panel demo-transcript-panel" aria-labelledby="demo-transcript-label">
+        <div class="demo-panel-head">
+          <h3 class="demo-panel-title" id="demo-transcript-label">Transcript</h3>
+          <span class="demo-turn" id="demo-turn">·</span>
+        </div>
+        <div class="demo-transcript" id="demo-transcript" role="log" aria-live="polite">
+          <p class="demo-empty" id="demo-empty">Press play to start the call.</p>
+        </div>
+      </section>
+
+      <!-- CHECKLIST -->
+      <section class="demo-panel demo-checklist-panel" aria-labelledby="demo-checklist-label">
+        <div class="demo-panel-head">
+          <h3 class="demo-panel-title" id="demo-checklist-label">Qualification</h3>
+          <span class="demo-score" id="demo-score">0/5</span>
+        </div>
+        <ul class="demo-checklist" id="demo-checklist"></ul>
+      </section>
+
+    </div>
+
+    <footer class="demo-foot">
+      <div class="demo-progress" aria-hidden="true"><span id="demo-progress-fill"></span></div>
+      <div class="demo-controls">
+        <button class="btn btn-cyan demo-play" type="button" id="demo-play">
+          <svg class="demo-play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <span id="demo-play-label">Play call</span>
+        </button>
+        <p class="demo-note" id="demo-note">Placeholder transcript. Audio is real.</p>
+      </div>
+    </footer>
+
+  </div>
+</div>
 
 <script src="script.js"></script>
 </body>
