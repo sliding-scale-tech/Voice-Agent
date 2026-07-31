@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   PhoneCall,
   Clock,
-  Timer,
   TrendingUp,
   ChevronDown,
   ChevronsDown,
@@ -80,11 +79,12 @@ export default function HistoryPage() {
         <p className="mt-1 text-sm text-muted-foreground">Every call, with its full transcript.</p>
       </div>
 
+      {/* "Minutes left" card removed along with the 15-min/month cap it tracked — no longer
+          applicable now that ElevenLabs is upgraded. */}
       {usage && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-3 gap-3">
           <StatCard icon={PhoneCall} label="Calls this month" value={String(usage.callCount)} />
           <StatCard icon={Clock} label="Minutes used" value={formatDuration(usage.secondsUsed)} />
-          <StatCard icon={Timer} label="Minutes left" value={formatDuration(usage.remainingSec)} />
           <StatCard icon={TrendingUp} label="Avg call" value={formatDuration(usage.avgDurationSec)} />
         </div>
       )}

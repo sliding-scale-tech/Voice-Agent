@@ -5,8 +5,10 @@ import { internal } from "./_generated/api";
 import { isOtlpPayload, parseOtlp } from "./otlp";
 import { computeLeadScore } from "./leadScoring";
 
-/** ElevenLabs free tier: 15 agent-minutes per month, total. */
-export const MONTHLY_LIMIT_SEC = 15 * 60;
+// Disabled: the 15-min/month free-tier cap no longer applies now that ElevenLabs is upgraded.
+// Usage is still tracked below (secondsUsed) for visibility; it just isn't enforced as a limit
+// anymore. Re-enable by uncommenting this and the limitSec/remainingSec fields below.
+// export const MONTHLY_LIMIT_SEC = 15 * 60;
 
 function monthKey(at: number) {
   const d = new Date(at);
@@ -63,8 +65,8 @@ export const usage = query({
     return {
       monthKey: key,
       secondsUsed,
-      limitSec: MONTHLY_LIMIT_SEC,
-      remainingSec: Math.max(0, MONTHLY_LIMIT_SEC - secondsUsed),
+      // limitSec: MONTHLY_LIMIT_SEC,
+      // remainingSec: Math.max(0, MONTHLY_LIMIT_SEC - secondsUsed),
       callCount: conversations.filter((c) => monthKey(c.startedAt) === key).length,
       avgDurationSec:
         conversations.length > 0
