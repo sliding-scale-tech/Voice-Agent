@@ -5,8 +5,10 @@ import { internal } from "./_generated/api";
 import { isOtlpPayload, parseOtlp } from "./otlp";
 import { computeLeadScore } from "./leadScoring";
 
-/** ElevenLabs free tier: 15 agent-minutes per month, total. */
-export const MONTHLY_LIMIT_SEC = 15 * 60;
+// Disabled: the 15-min/month free-tier cap no longer applies now that ElevenLabs is upgraded.
+// Usage is still tracked below (secondsUsed) for visibility; it just isn't enforced as a limit
+// anymore. Re-enable by uncommenting this and the limitSec/remainingSec fields below.
+// export const MONTHLY_LIMIT_SEC = 15 * 60;
 
 function monthKey(at: number) {
   const d = new Date(at);
@@ -63,8 +65,8 @@ export const usage = query({
     return {
       monthKey: key,
       secondsUsed,
-      limitSec: MONTHLY_LIMIT_SEC,
-      remainingSec: Math.max(0, MONTHLY_LIMIT_SEC - secondsUsed),
+      // limitSec: MONTHLY_LIMIT_SEC,
+      // remainingSec: Math.max(0, MONTHLY_LIMIT_SEC - secondsUsed),
       callCount: conversations.filter((c) => monthKey(c.startedAt) === key).length,
       avgDurationSec:
         conversations.length > 0
@@ -246,6 +248,10 @@ export const ingestFromWebhook = internalMutation({
     const startedAt = startedAtSec ? startedAtSec * 1000 : Date.now();
     const endedAt = durationSec ? startedAt + durationSec * 1000 : Date.now();
 
+    // Only the transition into "ended" should ever roll usage — a webhook retry for a call
+    // already marked ended must not re-add the same minutes a second time.
+    const isFirstEnding = !conv || conv.status === "active";
+
     if (!conv) {
       const id = await ctx.db.insert("conversations", {
         agentId: agent._id,
@@ -342,9 +348,9 @@ export const ingestFromWebhook = internalMutation({
     //   durationSec: durationSec ?? Math.round((endedAt - startedAt) / 1000),
     // });
 
-    // Roll usage the same way the browser path does on `end`, guarded so a webhook retry or
-    // a call the browser already ended doesn't double-count minutes.
-    if (durationSec !== undefined && conv.channel === "phone") {
+    // Roll usage the same way the browser path does on `end` — gated on isFirstEnding so a
+    // webhook retry for a call already marked ended can't double-count minutes.
+    if (isFirstEnding && durationSec !== undefined && conv.channel === "phone") {
       const key = monthKey(startedAt);
       const row = await ctx.db
         .query("usage")

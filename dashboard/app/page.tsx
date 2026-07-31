@@ -19,7 +19,6 @@ export default function CallPage() {
 
 function CallScreen() {
   const agent = useQuery(api.agents.current);
-  const usage = useQuery(api.conversations.usage);
   const mintToken = useAction(api.agents.mintToken);
   const startConversation = useMutation(api.conversations.start);
   const appendMessage = useMutation(api.conversations.appendMessage);
@@ -56,7 +55,6 @@ function CallScreen() {
 
   const connected = status === "connected";
   const connecting = status === "connecting";
-  const outOfMinutes = usage !== undefined && usage.remainingSec <= 0;
 
   useEffect(() => {
     if (!connected) return;
@@ -119,17 +117,6 @@ function CallScreen() {
       </div>
 
       <AnimatePresence>
-        {outOfMinutes && (
-          <motion.p
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
-          >
-            You have used all 15 free agent-minutes for this month. Calls will fail until the
-            quota resets.
-          </motion.p>
-        )}
         {error && (
           <motion.p
             initial={{ opacity: 0, height: 0 }}
@@ -160,7 +147,7 @@ function CallScreen() {
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={connected ? handleStop : handleStart}
-              disabled={starting || outOfMinutes || agent === undefined}
+              disabled={starting || agent === undefined}
               className={`relative z-10 flex h-20 w-20 items-center justify-center rounded-full shadow-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 connected
                   ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
