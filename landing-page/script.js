@@ -33,6 +33,40 @@
     }, { rootMargin: '0px 0px -12% 0px', threshold: 0.12 });
 
     revealables.forEach(function (el) { revealObserver.observe(el); });
+
+    /* Backstop. The observer can legitimately fail to fire: an anchor jump
+       or restored scroll position can land past an element, a zoomed or
+       short viewport can stop a tall element from ever reaching the 12%
+       threshold, and a throw further down this file would strand whatever
+       has not fired yet. Once loaded, force-reveal anything at or above the
+       fold so nothing is left invisible. */
+    var aboveFold = function (el) {
+      return el.getBoundingClientRect().top < window.innerHeight;
+    };
+
+    var sweep = function () {
+      document.querySelectorAll('.reveal:not(.is-visible)').forEach(function (el) {
+        if (!aboveFold(el)) return;
+        el.classList.add('is-visible');
+        revealObserver.unobserve(el);
+      });
+
+      /* The sparkline and the count-up numbers run on their own observers
+         with the same exposure, so they get the same backstop. Without it an
+         anchor jump past the dashboard leaves an undrawn chart and metrics
+         frozen at their placeholder 0. */
+      if (sparkFigure && !sparkFigure.classList.contains('is-drawn') && aboveFold(sparkFigure)) {
+        sparkFigure.classList.add('is-drawn');
+      }
+
+      document.querySelectorAll('[data-count]').forEach(function (el) {
+        if (el.dataset.counted || !aboveFold(el)) return;
+        countUp(el);
+      });
+    };
+
+    window.addEventListener('load', function () { setTimeout(sweep, 200); });
+    setTimeout(sweep, 2500);
   } else {
     revealables.forEach(function (el) { el.classList.add('is-visible'); });
   }
@@ -48,6 +82,10 @@
   }
 
   function countUp(el) {
+    // idempotent: the observer and the backstop sweep can both reach this
+    if (el.dataset.counted) return;
+    el.dataset.counted = '1';
+
     var target = parseFloat(el.dataset.count);
     var duration = 1600;
     var start = null;
@@ -229,6 +267,124 @@
 })();
 
 /* ============================================================
+   BOOK A CALL MODAL
+   Opened by any [data-book-open]. Submits to Formspree over fetch
+   so the visitor is never navigated away from the page.
+   ============================================================ */
+(function () {
+  'use strict';
+
+  var overlay = document.getElementById('book-overlay');
+  if (!overlay) return;
+
+  var card     = document.getElementById('book-card');
+  var form     = document.getElementById('book-form');
+  var submit   = document.getElementById('book-submit');
+  var statusEl = document.getElementById('book-status');
+  var openEls  = document.querySelectorAll('[data-book-open]');
+  var closeEls = overlay.querySelectorAll('[data-book-close]');
+
+  var lastFocus = null;
+  var sending = false;
+
+  function setStatus(message, state) {
+    statusEl.textContent = message || '';
+    statusEl.classList.toggle('is-ok', state === 'ok');
+    statusEl.classList.toggle('is-err', state === 'err');
+  }
+
+  function isOpen() { return !overlay.hidden; }
+
+  function open() {
+    lastFocus = document.activeElement;
+    overlay.hidden = false;
+    document.body.classList.add('demo-lock');   // reuse the existing scroll lock
+    requestAnimationFrame(function () { overlay.classList.add('is-open'); });
+    setTimeout(function () {
+      var first = form.querySelector('input:not([type="hidden"]):not(.book-gotcha)');
+      if (first) first.focus();
+    }, 60);
+  }
+
+  function close() {
+    overlay.classList.remove('is-open');
+    document.body.classList.remove('demo-lock');
+    setTimeout(function () {
+      overlay.hidden = true;
+      if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+    }, 380);
+  }
+
+  openEls.forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      open();
+    });
+  });
+
+  closeEls.forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      close();
+    });
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (!isOpen()) return;
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+      return;
+    }
+
+    if (e.key !== 'Tab') return;
+
+    var focusables = card.querySelectorAll(
+      'button, [href], input:not([type="hidden"]):not(.book-gotcha), textarea, select, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusables.length) return;
+
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (sending) return;
+
+    sending = true;
+    submit.disabled = true;
+    setStatus('Sending...', null);
+
+    fetch(form.action, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { Accept: 'application/json' }
+    }).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      form.reset();
+      setStatus('Thanks. We will be in touch shortly.', 'ok');
+      if (typeof window.toast === 'function') window.toast('REQUEST SENT', 'success');
+      setTimeout(function () { if (isOpen()) close(); }, 1800);
+    }).catch(function () {
+      setStatus('That did not send. Email scalesliding@gmail.com and we will pick it up.', 'err');
+    }).then(function () {
+      sending = false;
+      submit.disabled = false;
+    });
+  });
+})();
+
+/* ============================================================
    BILLING TOGGLE
    Only the Standard tier has a monthly number to discount:
    Pilot is a flat 7-day trial, Enterprise is custom-quoted.
@@ -243,6 +399,8 @@
   var SETUP_CAPTION   = '+ $3,000–$7,000 one-time setup';
   var ANNUAL_NOTE     = ' · billed annually';
 
+  // [PARKED] The pricing section is currently removed from index.html,
+  // so this exits here. It reactivates on its own if the markup returns.
   var toggle = document.getElementById('billing-switch');
   if (!toggle) return;
 

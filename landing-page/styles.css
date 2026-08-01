@@ -81,6 +81,12 @@ ul{ margin:0; padding:0; list-style:none; }
 
 .section{ position:relative; padding:clamp(72px,9vw,132px) 0; }
 
+/* Two adjacent sections would otherwise stack a full bottom pad on a full
+   top pad, giving 144-264px of dead vertical space at every boundary. Halve
+   the top pad when a section directly follows another so the page keeps its
+   rhythm without the visible blank gaps. */
+.section + .section{ padding-top:clamp(28px,3.5vw,48px); }
+
 /* ---------- Shared type ---------- */
 
 h1,h2,h3{
@@ -635,6 +641,137 @@ main,.site-header,.site-footer,.toast-stack,.scroll-progress{ position:relative;
 .logos li:hover{ opacity:0.7; transform:translateY(-3px); }
 
 /* ============================================================
+   COVERAGE
+   Literal hour count: weekday bars sit at 10/24 = 41.67%, weekends at
+   a near-zero stub, giving the stated 50 (10 hours x 5 days). Every
+   Leaseline bar is a full 24, giving 168 (24 x 7). Bars grow on scroll
+   via the existing .reveal observer, so this needs no extra JS.
+   ============================================================ */
+
+.cov-heading{
+  font-size:clamp(1.55rem,3.5vw,2.6rem);
+  text-transform:none;
+  letter-spacing:-0.02em;
+  line-height:1.18;
+  max-width:26ch;
+  margin:0 auto clamp(36px,4.5vw,58px);
+  text-align:center;
+  text-wrap:balance;
+}
+
+.cov-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:clamp(14px,1.8vw,22px);
+  max-width:62rem;
+  margin-inline:auto;
+  align-items:stretch;
+}
+
+.cov-panel{
+  display:flex;
+  flex-direction:column;
+  padding:clamp(24px,2.6vw,34px);
+}
+.cov-panel:hover{ box-shadow:var(--shadow-md); }
+
+.cov-title{
+  font-family:var(--font-body);
+  font-size:0.78rem;
+  font-weight:600;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  line-height:1.4;
+  color:var(--ink-dim);
+  margin:0 0 clamp(20px,2.4vw,28px);
+}
+
+.cov-chart{
+  display:grid;
+  grid-template-columns:repeat(7,minmax(0,1fr));
+  gap:clamp(6px,0.9vw,10px);
+}
+
+.cov-col{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+
+.cov-track{
+  display:flex;
+  align-items:flex-end;
+  width:100%;
+  height:clamp(94px,12vw,128px);
+  background:var(--surface-alt);
+  border-radius:7px;
+  overflow:hidden;
+}
+
+/* Bars are drawn at full height by default. Same rule as .reveal above:
+   the zero-height starting state only exists under .js-anim. */
+.cov-fill{
+  display:block;
+  width:100%;
+  height:var(--fill);
+  border-radius:7px;
+  background:var(--ink-faint);
+}
+.cov-panel-live .cov-fill{ background:var(--accent); }
+
+/* grow on scroll, left to right, 50ms apart */
+.js-anim .cov-fill{
+  height:0;
+  transition:height .85s var(--ease);
+}
+.js-anim .cov-panel.is-visible .cov-fill{ height:var(--fill); }
+.cov-col:nth-child(1) .cov-fill{ transition-delay:0ms; }
+.cov-col:nth-child(2) .cov-fill{ transition-delay:50ms; }
+.cov-col:nth-child(3) .cov-fill{ transition-delay:100ms; }
+.cov-col:nth-child(4) .cov-fill{ transition-delay:150ms; }
+.cov-col:nth-child(5) .cov-fill{ transition-delay:200ms; }
+.cov-col:nth-child(6) .cov-fill{ transition-delay:250ms; }
+.cov-col:nth-child(7) .cov-fill{ transition-delay:300ms; }
+
+.cov-day{
+  font-size:0.7rem;
+  font-weight:600;
+  letter-spacing:0.06em;
+  line-height:1;
+  color:var(--ink-faint);
+}
+
+.cov-num{
+  font-family:var(--font-num);
+  font-size:clamp(2.1rem,3.5vw,2.9rem);
+  font-weight:700;
+  letter-spacing:-0.03em;
+  line-height:1;
+  color:var(--ink);
+  font-variant-numeric:tabular-nums;
+  margin:clamp(24px,2.8vw,32px) 0 8px;
+}
+.cov-panel-live .cov-num{ color:var(--accent); }
+
+.cov-cap{
+  margin:0;
+  font-size:0.86rem;
+  line-height:1.55;
+  color:var(--ink-dim);
+}
+
+@media (max-width:860px){
+  .cov-grid{ grid-template-columns:1fr; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .cov-fill,
+  .js-anim .cov-fill{ height:var(--fill); transition:none; }
+}
+
+/* ============================================================
    DASHBOARD SIMULATOR
    ============================================================ */
 
@@ -747,16 +884,24 @@ table.log tbody tr:last-child td{ border-bottom:0; }
 .spark-figure{ position:relative; }
 .spark-figure svg{ display:block; width:100%; height:170px; }
 
+/* Same rule as .reveal: the chart is fully drawn by default, and the
+   undrawn starting state only exists under .js-anim. Without this the
+   sparkline depended on its own observer firing, and an anchor jump past
+   the dashboard left an empty chart card. */
 .spark-line{
   stroke-dasharray:1000;
-  stroke-dashoffset:1000;
+  stroke-dashoffset:0;
 }
-.spark-area{ opacity:0; }
-.spark-tip{ opacity:0; }
+.spark-area{ opacity:1; }
+.spark-tip{ opacity:1; }
 
-.spark-figure.is-drawn .spark-line{ animation:draw 2s var(--ease) forwards; }
-.spark-figure.is-drawn .spark-area{ animation:fade-in 1.2s var(--ease) .7s forwards; }
-.spark-figure.is-drawn .spark-tip{ animation:tip 1.2s var(--ease) 1.4s forwards; }
+.js-anim .spark-line{ stroke-dashoffset:1000; }
+.js-anim .spark-area{ opacity:0; }
+.js-anim .spark-tip{ opacity:0; }
+
+.js-anim .spark-figure.is-drawn .spark-line{ animation:draw 2s var(--ease) forwards; }
+.js-anim .spark-figure.is-drawn .spark-area{ animation:fade-in 1.2s var(--ease) .7s forwards; }
+.js-anim .spark-figure.is-drawn .spark-tip{ animation:tip 1.2s var(--ease) 1.4s forwards; }
 
 @keyframes draw{ to{ stroke-dashoffset:0; } }
 @keyframes fade-in{ to{ opacity:1; } }
@@ -811,7 +956,10 @@ table.log tbody tr:last-child td{ border-bottom:0; }
    Native <details> so it works keyboard-first without JS.
    ============================================================ */
 
-.faq-section{ padding-top:clamp(28px,3.5vw,48px); }
+/* The reduced top padding here existed only because the pricing grid
+   sat above with its own vertical padding and badge overhang. With
+   pricing removed, the FAQ follows the dashboard section directly and
+   uses the standard .section rhythm. */
 
 .faq-list{
   max-width:52rem;
@@ -819,6 +967,21 @@ table.log tbody tr:last-child td{ border-bottom:0; }
   display:grid;
   gap:0.75rem;
 }
+
+.faq-footnote{
+  max-width:52rem;
+  margin:clamp(24px,3vw,34px) auto 0;
+  text-align:center;
+  font-size:0.9rem;
+  color:var(--ink-dim);
+}
+.faq-footnote a{
+  font-weight:600;
+  color:var(--accent);
+  transition:color .4s var(--ease);
+}
+.faq-footnote a:hover{ color:var(--accent-deep); text-decoration:underline; }
+.faq-footnote a:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
 
 .faq-item{
   background:var(--surface);
@@ -871,7 +1034,236 @@ table.log tbody tr:last-child td{ border-bottom:0; }
 }
 
 /* ============================================================
-   PRICING
+   OTHER AUTOMATIONS
+   Reuses .glass for the cards and the same 4/2/1 column rhythm
+   as the stats and metric grids. No new tokens.
+   ============================================================ */
+
+.autos-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:clamp(12px,1.5vw,18px);
+  align-items:stretch;
+}
+
+.auto-card{
+  display:flex;
+  flex-direction:column;
+  padding:clamp(20px,2.2vw,28px);
+}
+.auto-card:hover{ transform:translateY(-3px); box-shadow:var(--shadow-md); }
+
+.auto-cat{
+  display:block;
+  font-weight:600;
+  font-size:0.7rem;
+  letter-spacing:0.07em;
+  text-transform:uppercase;
+  line-height:1.4;
+  color:var(--accent);
+  margin-bottom:10px;
+}
+
+.auto-name{
+  font-family:var(--font-body);
+  font-size:1.02rem;
+  font-weight:700;
+  text-transform:none;
+  letter-spacing:-0.01em;
+  line-height:1.35;
+  color:var(--ink);
+  margin:0 0 10px;
+}
+
+.auto-body{
+  margin:0;
+  font-size:0.9rem;
+  line-height:1.65;
+  color:var(--ink-mid);
+}
+
+.autos-cta{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:16px;
+  margin-top:clamp(34px,4vw,52px);
+}
+.autos-cta-text{
+  margin:0;
+  font-size:1rem;
+  color:var(--ink-mid);
+}
+
+@media (max-width:1080px){
+  .autos-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width:760px){
+  .autos-grid{ grid-template-columns:1fr; }
+  .autos-cta{ flex-direction:column; gap:14px; }
+  .autos-cta .btn{ width:100%; justify-content:center; }
+}
+
+/* ============================================================
+   BOOK A CALL MODAL
+   Same overlay/card pattern as the call demo modal.
+   ============================================================ */
+
+.book-overlay{
+  position:fixed;
+  inset:0;
+  z-index:100;
+  display:grid;
+  place-items:center;
+  padding:clamp(12px,3vw,32px);
+  opacity:0;
+  transition:opacity .4s var(--ease);
+}
+.book-overlay[hidden]{ display:none; }
+.book-overlay.is-open{ opacity:1; }
+
+.book-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(21,24,29,0.55);
+  -webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(6px);
+  cursor:pointer;
+}
+
+.book-card{
+  position:relative;
+  z-index:1;
+  width:min(480px,100%);
+  max-height:min(90svh,760px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:20px;
+  box-shadow:var(--shadow-lg);
+  transform:translateY(16px) scale(0.985);
+  transition:transform .5s var(--ease);
+}
+.book-overlay.is-open .book-card{ transform:none; }
+
+.book-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:clamp(20px,2.4vw,26px) clamp(20px,2.6vw,28px) 0;
+}
+.book-title{
+  font-family:var(--font-display);
+  font-weight:800;
+  font-size:clamp(1.2rem,2.2vw,1.5rem);
+  text-transform:uppercase;
+  letter-spacing:-0.02em;
+  line-height:1;
+  color:var(--ink);
+  margin:0;
+}
+.book-close{
+  flex:0 0 auto;
+  width:34px; height:34px;
+  display:grid;
+  place-items:center;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:10px;
+  color:var(--ink-mid);
+  cursor:pointer;
+  padding:0;
+  transition:color .4s var(--ease), border-color .4s var(--ease), background .4s var(--ease);
+}
+.book-close svg{ width:14px; height:14px; }
+.book-close:hover{ color:var(--ink); border-color:rgba(21,24,29,0.2); background:var(--surface-alt); }
+.book-close:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+.book-form{
+  display:grid;
+  gap:14px;
+  padding:clamp(18px,2.2vw,24px) clamp(20px,2.6vw,28px) clamp(22px,2.6vw,28px);
+}
+
+.book-field{ display:grid; gap:6px; }
+.book-label{
+  font-size:0.78rem;
+  font-weight:600;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  color:var(--ink-dim);
+}
+.book-input{
+  width:100%;
+  font-family:var(--font-body);
+  font-size:0.95rem;
+  line-height:1.5;
+  color:var(--ink);
+  background:var(--surface-alt);
+  border:1px solid var(--line);
+  border-radius:0.75rem;
+  padding:11px 13px;
+  transition:border-color .4s var(--ease), background .4s var(--ease);
+}
+.book-input:hover{ border-color:rgba(21,24,29,0.16); }
+.book-input:focus{
+  outline:none;
+  background:var(--surface);
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(15,110,103,0.12);
+}
+.book-textarea{ resize:vertical; min-height:80px; }
+
+/* honeypot: hidden from people, visible to bots */
+.book-gotcha{
+  position:absolute;
+  left:-9999px;
+  width:1px;
+  height:1px;
+  opacity:0;
+  pointer-events:none;
+}
+
+.book-submit{ margin-top:4px; }
+.book-submit[disabled]{ opacity:0.6; cursor:progress; }
+
+.book-status{
+  margin:0;
+  min-height:1.2em;
+  font-size:0.85rem;
+  line-height:1.5;
+  text-align:center;
+  color:var(--ink-dim);
+}
+.book-status.is-ok{ color:var(--pos); }
+.book-status.is-err{ color:var(--neg); }
+
+@media (max-width:560px){
+  .book-overlay{ padding:0; }
+  .book-card{
+    width:100%;
+    height:100svh;
+    max-height:100svh;
+    border-radius:0;
+    border:0;
+  }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .book-card{ transform:none; }
+}
+
+/* ============================================================
+   PRICING  [PARKED]
+   The pricing markup was removed from index.html while the tiers are
+   being finalised. These rules are inert without it (no matching
+   elements) and are kept so restoring the section is a paste, not a
+   rewrite. The markup itself is recoverable from git: commit afe2e81.
+   Delete this whole block if pricing is not coming back.
+
    Spec supplied as Tailwind utilities; translated to this
    project's plain CSS. Utility values are literal (p-8 = 2rem,
    rounded-2xl = 1rem, lg: = 1024px). teal/ink/slate map onto the
@@ -1195,6 +1587,32 @@ table.log tbody tr:last-child td{ border-bottom:0; }
   color:var(--pos);
 }
 
+/* contact row */
+.footer-base{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  margin-top:18px;
+  padding-top:18px;
+  border-top:1px solid var(--line-soft);
+}
+.footer-email{
+  font-size:0.88rem;
+  font-weight:600;
+  color:var(--accent);
+  transition:color .4s var(--ease);
+}
+.footer-email:hover{ color:var(--accent-deep); text-decoration:underline; }
+.footer-email:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
+
+.footer-copy{
+  margin:0;
+  font-size:0.8rem;
+  color:var(--ink-faint);
+}
+
 /* ============================================================
    TOASTS
    ============================================================ */
@@ -1252,16 +1670,25 @@ table.log tbody tr:last-child td{ border-bottom:0; }
    SCROLL REVEALS
    ============================================================ */
 
-.reveal{
+/* Visible by default. Content must never depend on a scroll trigger:
+   if script.js fails to load, errors, or the observer never fires, the
+   page still renders in full. The hidden starting state is applied only
+   under .js-anim, which the inline head script sets when it knows an
+   IntersectionObserver exists to undo it. */
+.reveal{ opacity:1; transform:none; }
+
+.js-anim .reveal{
   opacity:0;
   transform:translateY(20px);
   transition:opacity .8s var(--ease), transform .8s var(--ease);
 }
-.reveal.is-visible{ opacity:1; transform:none; }
+.js-anim .reveal.is-visible{ opacity:1; transform:none; }
+
 /* featured card is scaled only at lg, so preserve the scale through reveal */
 @media (min-width:1024px){
-  .pcard-featured.reveal{ transform:scale(1.04) translateY(20px); }
-  .pcard-featured.reveal.is-visible{ transform:scale(1.04); }
+  .js-anim .pcard-featured.reveal{ transform:scale(1.04) translateY(20px); }
+  .pcard-featured.reveal,
+  .js-anim .pcard-featured.reveal.is-visible{ transform:scale(1.04); }
 }
 
 .reveal[data-delay="1"]{ transition-delay:.07s; }
@@ -1313,9 +1740,13 @@ table.log tbody tr:last-child td{ border-bottom:0; }
     animation-iteration-count:1 !important;
     transition-duration:.001s !important;
   }
-  .reveal{ opacity:1; transform:none; }
-  .spark-line{ stroke-dashoffset:0; }
-  .spark-area,.spark-tip{ opacity:1; }
+  /* must out-specify .js-anim .reveal, or content stays hidden here */
+  .reveal,
+  .js-anim .reveal{ opacity:1; transform:none; }
+  .spark-line,
+  .js-anim .spark-line{ stroke-dashoffset:0; }
+  .spark-area,.spark-tip,
+  .js-anim .spark-area,.js-anim .spark-tip{ opacity:1; }
 }
 
 /* ============================================================
