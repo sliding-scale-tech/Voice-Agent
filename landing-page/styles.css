@@ -627,25 +627,39 @@ main,.site-header,.site-footer,.toast-stack,.scroll-progress{ position:relative;
   align-items:center;
   gap:clamp(26px,4.5vw,58px);
 }
+/* Real vendor logos, normalised so none dominates the row: every wordmark
+   is capped to the same height and max width, and the square Google Sheets
+   mark runs slightly shorter since a solid glyph reads heavier than a
+   wordmark at equal height. Colour is neutralised in CSS, so the source
+   SVGs stay untouched and accurate. */
 .logos li{
-  font-family:var(--font-display);
-  font-weight:800;
-  font-size:clamp(1rem,1.9vw,1.45rem);
-  text-transform:uppercase;
-  letter-spacing:-0.02em;
-  color:var(--ink);
+  display:flex;
+  align-items:center;
   opacity:0.34;
   filter:grayscale(1);
   transition:opacity .6s var(--ease), transform .6s var(--ease);
 }
 .logos li:hover{ opacity:0.7; transform:translateY(-3px); }
 
+.logo-img{
+  display:block;
+  height:clamp(20px,2.2vw,26px);
+  width:auto;
+  max-width:clamp(104px,14vw,150px);
+  object-fit:contain;
+}
+/* square mark, not a wordmark */
+.logo-img-mark{
+  height:clamp(18px,2vw,23px);
+  max-width:none;
+}
+
 /* ============================================================
    COVERAGE
-   Literal hour count: weekday bars sit at 10/24 = 41.67%, weekends at
-   a near-zero stub, giving the stated 50 (10 hours x 5 days). Every
-   Leaseline bar is a full 24, giving 168 (24 x 7). Bars grow on scroll
-   via the existing .reveal observer, so this needs no extra JS.
+   Literal hour count: weekday bars sit at 8/24 = 33.33%, weekends at
+   a near-zero stub, giving the stated 40 (8 hours x 5 days, a standard
+   work week). Every Leaseline bar is a full 24, giving 168 (24 x 7).
+   Bars grow on scroll via the existing .reveal observer, no extra JS.
    ============================================================ */
 
 .cov-heading{

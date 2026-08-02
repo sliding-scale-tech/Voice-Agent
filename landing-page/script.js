@@ -711,7 +711,7 @@
     });
 
     updateScore();
-    turnEl.textContent = '\u00b7';
+    turnEl.textContent = '-';   // ASCII only: no encoding ambiguity
     progressEl.style.width = '0%';
     liveLabel.textContent = 'Incoming call';
     overlay.classList.remove('is-done');
