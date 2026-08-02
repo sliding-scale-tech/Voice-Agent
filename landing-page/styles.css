@@ -215,7 +215,9 @@ main,.site-header,.site-footer,.toast-stack,.scroll-progress{ position:relative;
   box-shadow:var(--shadow-md);
 }
 
-.brand{ display:inline-flex; align-items:center; gap:11px; }
+/* The brand is the only nav item allowed to give up width. Everything else
+   in the bar is a tap target, so it holds its size and the name truncates. */
+.brand{ display:inline-flex; align-items:center; gap:11px; min-width:0; }
 .brand-mark{
   width:34px; height:34px;
   display:grid; place-items:center;
@@ -232,6 +234,10 @@ main,.site-header,.site-footer,.toast-stack,.scroll-progress{ position:relative;
   font-size:1.12rem;
   letter-spacing:-0.02em;
   text-transform:uppercase;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 
 .nav-pill{
@@ -282,6 +288,7 @@ main,.site-header,.site-footer,.toast-stack,.scroll-progress{ position:relative;
 
 .nav-toggle{
   display:none;
+  flex:0 0 auto;          /* never let the flex row squash the tap target */
   width:40px; height:40px;
   background:var(--surface-alt);
   border:1px solid var(--line);
@@ -1326,7 +1333,7 @@ table.log tbody tr:last-child td{ border-bottom:0; }
   box-shadow:var(--shadow-sm);
   transition:transform .35s var(--ease);
 }
-/* 3rem track − 1.25rem knob − 0.25rem inset ×2 = 1.25rem of travel */
+/* 3rem track - 1.25rem knob - 0.25rem inset x2 = 1.25rem of travel */
 .billing-switch[aria-checked="true"] .billing-knob{ transform:translateX(1.25rem); }
 
 .billing-badge{
@@ -1747,6 +1754,32 @@ table.log tbody tr:last-child td{ border-bottom:0; }
   .shape.s1,.shape.s5{ display:none; }
 }
 
+/* Phone widths: brand + status dot + Book a Call + hamburger have to fit
+   inside ~350px of usable bar. Trim the mark, the type and the button
+   padding so the toggle stays at full size and fully inside the viewport. */
+@media (max-width:560px){
+  .nav{
+    width:calc(100% - 20px);
+    padding:0 10px;
+    gap:10px;
+  }
+  .brand{ gap:8px; }
+  .brand-mark{ width:30px; height:30px; border-radius:8px; }
+  .brand-mark svg{ width:16px; height:16px; }
+  .brand-name{ font-size:1rem; }
+  .nav-right{ flex:0 0 auto; gap:10px; }
+  .nav-right .btn{ padding:10px 14px; font-size:0.78rem; }
+  .nav-toggle{ width:36px; height:36px; }
+}
+
+/* Sub-400px (SE-class): the bare status dot carries no meaning without its
+   label, so it goes rather than crowd the two real controls. */
+@media (max-width:400px){
+  .nav{ gap:8px; }
+  .status-chip{ display:none; }
+  .nav-right .btn{ padding:10px 12px; font-size:0.74rem; letter-spacing:0; }
+}
+
 @media (prefers-reduced-motion:reduce){
   html{ scroll-behavior:auto; }
   *,*::before,*::after{
@@ -2054,6 +2087,8 @@ table.log tbody tr:last-child td{ border-bottom:0; }
   color:var(--ink-faint);
 }
 .demo-note.is-error{ color:var(--neg); }
+/* no note, no line box: keeps the stacked mobile controls tight */
+.demo-note:empty{ display:none; }
 
 /* ---------- page state while open ---------- */
 
@@ -2061,20 +2096,30 @@ body.demo-lock{ overflow:hidden; }
 
 /* ---------- responsive: stack transcript above checklist ---------- */
 
+/* Below 860px the two columns become one stack. Grid rows would still be
+   sized against the card's fixed height, so an `overflow:visible` transcript
+   spilled its bubbles straight over the checklist below. Use a plain flex
+   column instead: the transcript gets its own bounded, scrollable box and
+   the checklist starts where that box ends. */
 @media (max-width:860px){
   .demo-card{ max-height:92svh; }
   .demo-body{
-    grid-template-columns:1fr;
+    display:flex;
+    flex-direction:column;
     overflow-y:auto;
     overscroll-behavior:contain;
   }
+  .demo-panel{ flex:0 0 auto; }
   .demo-transcript-panel{
     border-right:0;
     border-bottom:1px solid var(--line-soft);
   }
-  /* panels scroll with the body instead of independently */
-  .demo-transcript{ overflow:visible; min-height:210px; }
-  .demo-checklist{ overflow:visible; }
+  .demo-transcript{
+    flex:0 0 auto;
+    height:clamp(200px,38svh,320px);
+    overflow-y:auto;
+  }
+  .demo-checklist{ flex:0 0 auto; overflow:visible; }
   .demo-line{ max-width:92%; }
 }
 

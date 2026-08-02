@@ -396,8 +396,10 @@
 
   var BASE_PRICE      = 6;      // $/unit/mo
   var ANNUAL_DISCOUNT = 0.2;    // 20% off  ->  6 * 0.8 = 4.80
-  var SETUP_CAPTION   = '+ $3,000–$7,000 one-time setup';
-  var ANNUAL_NOTE     = ' · billed annually';
+  /* ASCII only. Non-ASCII punctuation in shipped copy has bitten us twice
+     already (phone numbers, the sparkline caption), so keep it plain. */
+  var SETUP_CAPTION   = '+ $3,000-$7,000 one-time setup';
+  var ANNUAL_NOTE     = ' - billed annually';
 
   // [PARKED] The pricing section is currently removed from index.html,
   // so this exits here. It reactivates on its own if the markup returns.
@@ -439,17 +441,16 @@
   'use strict';
 
   /* ------------------------------------------------------------------
-     >>> FILL THIS IN <<<
+     One entry per audio file in ./audio/, in playback order. `speaker`
+     follows the filename convention (01 opens as the agent, then
+     tenant/ai alternate through 15ai) and `text` is that file's line.
 
-     `audio` and `speaker` are correct. Filenames are read straight
-     from ./audio/ and the speaker follows the filename convention
-     (01 opens as the agent, then tenant/ai alternate through 15ai).
+     `qualifies` lists the CRITERIA ids the line satisfies. Ticks fire
+     when the line starts, so the id sits on the turn where the answer
+     is actually given. An empty array means no tick on that turn.
 
-     `text`      is a PLACEHOLDER. Replace with the real transcript line.
-     `qualifies` is a PLACEHOLDER MAPPING. List the CRITERIA ids that the
-                  line satisfies. Ticks fire when the line starts, so
-                  put an id on the turn where the answer is actually
-                  given. An empty array means no tick on that turn.
+     Copy is deliberately ASCII only, apostrophes included: non-ASCII
+     punctuation has already shipped broken twice on this page.
      ------------------------------------------------------------------ */
 
   var CRITERIA = [
@@ -461,21 +462,36 @@
   ];
 
   var DEMO_SCRIPT = [
-    { audio: 'audio/01.mp3',        speaker: 'ai',     text: '[AI line 1, add transcript]',      qualifies: [] },
-    { audio: 'audio/02tenant.mp3',  speaker: 'caller', text: '[Caller line 2, add transcript]',  qualifies: [] },
-    { audio: 'audio/03ai.mp3',      speaker: 'ai',     text: '[AI line 3, add transcript]',      qualifies: [] },
-    { audio: 'audio/04tenant.mp3',  speaker: 'caller', text: '[Caller line 4, add transcript]',  qualifies: ['c1'] },
-    { audio: 'audio/05ai.mp3',      speaker: 'ai',     text: '[AI line 5, add transcript]',      qualifies: [] },
-    { audio: 'audio/06tenant.mp3',  speaker: 'caller', text: '[Caller line 6, add transcript]',  qualifies: ['c2'] },
-    { audio: 'audio/07ai.mp3',      speaker: 'ai',     text: '[AI line 7, add transcript]',      qualifies: [] },
-    { audio: 'audio/08tenant.mp3',  speaker: 'caller', text: '[Caller line 8, add transcript]',  qualifies: ['c3'] },
-    { audio: 'audio/09ai.mp3',      speaker: 'ai',     text: '[AI line 9, add transcript]',      qualifies: [] },
-    { audio: 'audio/10tenant.mp3',  speaker: 'caller', text: '[Caller line 10, add transcript]', qualifies: ['c4'] },
-    { audio: 'audio/11ai.mp3',      speaker: 'ai',     text: '[AI line 11, add transcript]',     qualifies: [] },
-    { audio: 'audio/12tenant.mp3',  speaker: 'caller', text: '[Caller line 12, add transcript]', qualifies: ['c5'] },
-    { audio: 'audio/13ai.mp3',      speaker: 'ai',     text: '[AI line 13, add transcript]',     qualifies: [] },
-    { audio: 'audio/14tenant.mp3',  speaker: 'caller', text: '[Caller line 14, add transcript]', qualifies: [] },
-    { audio: 'audio/15ai.mp3',      speaker: 'ai',     text: '[AI line 15, add transcript]',     qualifies: [] }
+    { audio: 'audio/01.mp3',       speaker: 'ai',     qualifies: [],
+      text: 'Thanks for calling Parkview Apartments, this is the leasing assistant. How can I help you today?' },
+    { audio: 'audio/02tenant.mp3', speaker: 'caller', qualifies: [],
+      text: 'Hey, um, I saw the two-bedroom listing online, is it still available?' },
+    { audio: 'audio/03ai.mp3',     speaker: 'ai',     qualifies: [],
+      text: 'It is, happy to help you check it out. Can I grab a couple quick details first? What\'s your ideal move-in date?' },
+    { audio: 'audio/04tenant.mp3', speaker: 'caller', qualifies: ['c1'],
+      text: 'Probably early next month, maybe the first or so.' },
+    { audio: 'audio/05ai.mp3',     speaker: 'ai',     qualifies: [],
+      text: 'Got it. And what\'s your budget range for monthly rent?' },
+    { audio: 'audio/06tenant.mp3', speaker: 'caller', qualifies: ['c2'],
+      text: 'Around sixteen hundred, maybe a bit more if it\'s nice.' },
+    { audio: 'audio/07ai.mp3',     speaker: 'ai',     qualifies: [],
+      text: 'That works for our two-bedrooms. Last thing, any pets?' },
+    { audio: 'audio/08tenant.mp3', speaker: 'caller', qualifies: ['c3'],
+      text: 'Yeah, I\'ve got a small dog.' },
+    { audio: 'audio/09ai.mp3',     speaker: 'ai',     qualifies: [],
+      text: 'No problem, this building\'s pet-friendly. Can I get your name and a callback number, just in case we get cut off?' },
+    { audio: 'audio/10tenant.mp3', speaker: 'caller', qualifies: ['c4'],
+      text: 'Sure, it\'s Sarah, and it\'s five-five-five, oh one four two.' },
+    { audio: 'audio/11ai.mp3',     speaker: 'ai',     qualifies: [],
+      text: 'Perfect, Sarah. That unit fits your budget, your timeline, and the building takes pets, so let\'s get you in to see it. Does Thursday afternoon work for a tour?' },
+    { audio: 'audio/12tenant.mp3', speaker: 'caller', qualifies: ['c5'],
+      text: 'Yeah, that could work.' },
+    { audio: 'audio/13ai.mp3',     speaker: 'ai',     qualifies: [],
+      text: 'Great, I\'ve got you down for Thursday at 3 PM, and I\'m sending a text confirmation right now. Anything else I can help with?' },
+    { audio: 'audio/14tenant.mp3', speaker: 'caller', qualifies: [],
+      text: 'No, that\'s it, thanks!' },
+    { audio: 'audio/15ai.mp3',     speaker: 'ai',     qualifies: [],
+      text: 'Of course. Talk soon.' }
   ];
 
   var SPEAKER_LABEL = { ai: 'Agent', caller: 'Caller' };

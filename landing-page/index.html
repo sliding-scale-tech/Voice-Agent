@@ -296,7 +296,7 @@
                 <circle class="spark-tip" cx="250" cy="20" r="3.4" fill="#2f5fd0" stroke="#ffffff" stroke-width="2"/>
               </svg>
             </div>
-            <p class="spark-caption">PEAK HOURS: 6PM&ndash;11PM</p>
+            <p class="spark-caption">PEAK HOURS: 6PM-11PM</p>
           </div>
         </aside>
       </div>
@@ -458,8 +458,8 @@
 
 <!-- ============================================================
      CALL DEMO MODAL
-     Transcript text and criteria labels are PLACEHOLDERS.
-     Replace them in the DEMO_SCRIPT / CRITERIA arrays in script.js.
+     Transcript lines and criteria labels live in the DEMO_SCRIPT /
+     CRITERIA arrays in script.js; this is just the shell.
      ============================================================ -->
 <div class="demo-overlay" id="demo-overlay" hidden>
   <div class="demo-backdrop" data-demo-close></div>
@@ -510,7 +510,8 @@
           <svg class="demo-play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
           <span id="demo-play-label">Play call</span>
         </button>
-        <p class="demo-note" id="demo-note">Placeholder transcript. Audio is real.</p>
+        <!-- empty by default; fills in only when playback errors out -->
+        <p class="demo-note" id="demo-note"></p>
       </div>
     </footer>
 
