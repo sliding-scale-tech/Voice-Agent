@@ -73,7 +73,7 @@
         <span class="status-dot" aria-hidden="true"></span>
         <span class="status-label">ANSWERING NOW</span>
       </span>
-      <a href="/#book" class="btn btn-cyan">BOOK A CALL</a>
+      <a href="/#book" class="btn btn-cyan" data-book-open>BOOK A CALL</a>
     </div>
 
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
@@ -127,7 +127,7 @@
         <p class="article-back reveal"><a href="/">See how Leaseline works.</a></p>
 
         <div class="article-cta reveal">
-          <a href="/#book" class="btn btn-cyan btn-lg">Book a call</a>
+          <button type="button" class="btn btn-cyan btn-lg" data-book-open>Book a call</button>
         </div>
 
       </article>
@@ -149,6 +149,55 @@
     <p class="footer-copy">&copy; 2026 LEASELINE. All rights reserved.</p>
   </div>
 </footer>
+
+<!-- ============================================================
+     BOOK A CALL MODAL
+     Same markup and same Formspree endpoint as the homepage, so
+     [data-book-open] on this page opens the booking form in place
+     instead of bouncing the reader back to /#book.
+     ============================================================ -->
+<div class="book-overlay" id="book-overlay" hidden>
+  <div class="book-backdrop" data-book-close></div>
+
+  <div class="book-card" role="dialog" aria-modal="true" aria-labelledby="book-title" id="book-card">
+
+    <header class="book-head">
+      <h2 class="book-title" id="book-title">Book a call</h2>
+      <button class="book-close" type="button" data-book-close aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </header>
+
+    <form class="book-form" id="book-form" action="https://formspree.io/f/mbdnevbz" method="POST">
+      <input type="hidden" name="_subject" value="New booking request from the Leaseline site" />
+      <input type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true" class="book-gotcha" />
+
+      <label class="book-field">
+        <span class="book-label">Name</span>
+        <input class="book-input" type="text" name="name" required autocomplete="name" />
+      </label>
+
+      <label class="book-field">
+        <span class="book-label">Email</span>
+        <input class="book-input" type="email" name="email" required autocomplete="email" />
+      </label>
+
+      <label class="book-field">
+        <span class="book-label">Portfolio size</span>
+        <input class="book-input" type="text" name="portfolio" autocomplete="off" />
+      </label>
+
+      <label class="book-field">
+        <span class="book-label">Anything else?</span>
+        <textarea class="book-input book-textarea" name="message" rows="3"></textarea>
+      </label>
+
+      <button class="btn btn-cyan btn-block book-submit" type="submit" id="book-submit">Send request</button>
+      <p class="book-status" id="book-status" role="status" aria-live="polite"></p>
+    </form>
+
+  </div>
+</div>
 
 <script src="/script.js"></script>
 </body>
