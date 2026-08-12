@@ -2141,3 +2141,89 @@ body.demo-lock{ overflow:hidden; }
   .demo-line{ animation:none; opacity:1; transform:none; }
   .demo-card{ transform:none; }
 }
+
+/* ============================================================
+   ARTICLE / RESOURCES  (resources/*.html)
+   Long-form pages. Everything here rides on the existing section,
+   wrap, glass and btn primitives; only the prose column is new.
+   ============================================================ */
+
+/* No hero on these pages, so the sticky header would otherwise sit on
+   top of the first line. Clear it explicitly. */
+.article-section{ padding-top:calc(var(--header-h) + clamp(40px,5vw,72px)); }
+
+.article{ max-width:70ch; margin-inline:auto; }
+
+.article-title{
+  font-size:clamp(1.8rem,4vw,2.9rem);
+  margin:0 0 clamp(20px,2.6vw,30px);
+  text-wrap:balance;
+}
+
+.article-lede{
+  font-size:clamp(1.02rem,1.35vw,1.16rem);
+  color:var(--ink-mid);
+  margin:0 0 clamp(30px,4vw,46px);
+}
+
+.article h2{
+  font-size:clamp(1.25rem,2.3vw,1.75rem);
+  margin:clamp(38px,4.6vw,58px) 0 clamp(13px,1.6vw,18px);
+  text-wrap:balance;
+}
+
+.article p{ margin:0 0 1.15em; color:var(--ink-mid); }
+.article p:last-child{ margin-bottom:0; }
+
+/* legal disclaimer: quieter than body copy, visibly set apart */
+.article-note{
+  background:var(--surface-alt);
+  border:1px solid var(--line-soft);
+  border-radius:16px;
+  padding:clamp(18px,2.4vw,26px);
+}
+.article-note p{ font-size:0.92rem; color:var(--ink-dim); }
+
+.article-back{
+  margin:clamp(34px,4.4vw,54px) 0 0;
+  padding-top:clamp(22px,2.8vw,30px);
+  border-top:1px solid var(--line-soft);
+}
+.article-back a{
+  color:var(--accent);
+  font-weight:600;
+  text-decoration:underline;
+  text-underline-offset:3px;
+  text-decoration-thickness:1px;
+}
+.article-back a:hover{ color:var(--accent-deep); }
+
+.article-cta{ margin-top:clamp(22px,2.8vw,30px); }
+
+/* ---------- resources index ---------- */
+
+.resource-list{
+  display:grid;
+  gap:16px;
+  max-width:70ch;
+  margin-inline:auto;
+}
+
+.resource-card{
+  display:block;
+  padding:clamp(20px,2.6vw,28px);
+}
+.resource-card:hover{
+  transform:translateY(-3px);
+  border-color:rgba(21,24,29,0.16);
+  box-shadow:var(--shadow-md);
+}
+.resource-card:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; }
+
+.resource-title{
+  font-size:clamp(1.05rem,1.8vw,1.32rem);
+  margin:0 0 10px;
+  text-wrap:balance;
+}
+
+.resource-desc{ margin:0; color:var(--ink-mid); font-size:0.96rem; }
