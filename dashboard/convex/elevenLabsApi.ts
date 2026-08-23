@@ -54,6 +54,43 @@ export type KnowledgeBaseEntry = {
   usage_mode: "auto";
 };
 
+/**
+ * Voice delivery settings. These used to live only in the ElevenLabs dashboard, which meant
+ * they silently drifted from anything we had agreed on — see docs/voice-quality-research.md
+ * for the audit that prompted moving them into code.
+ */
+export type VoiceTuning = {
+  /**
+   * `eleven_v3_conversational` is the only model that supports expressive mode; it trades
+   * ~205ms of latency (~280ms vs ~75ms for flash) for genuine prosody and tone adaptation.
+   * Note it does NOT preserve professional voice clone (PVC) characteristics, so it pairs
+   * with a premade voice rather than a cloned one.
+   */
+  modelId: string;
+  /** 0.30–0.50 is dynamic and emotional; 0.60+ trends monotonous. */
+  stability: number;
+  /** Higher tracks the source voice more closely; very high values distort. */
+  similarityBoost: number;
+  /** 0.9–1.1 is the documented natural conversational range. */
+  speed: number;
+  /** Only has an effect on eleven_v3_conversational, where it is the whole point. */
+  expressiveMode: boolean;
+};
+
+/** Turn-taking. Governs dead air and how readily the agent talks over the caller. */
+export type TurnTuning = {
+  /** Seconds of caller silence before the agent prompts again. */
+  turnTimeout: number;
+  /** "patient" is documented for flows that collect names, numbers, and addresses. */
+  eagerness: "eager" | "normal" | "patient";
+  /** Seconds of LLM/tool delay before speaking a filler instead of going silent. */
+  softTimeoutSeconds: number;
+  /** Rotated at random so the same filler isn't repeated within one call. */
+  fillerMessages: string[];
+  /** Backchannels that should not count as an interruption. */
+  interruptionIgnoreTerms: string[];
+};
+
 export type AgentConfig = {
   name: string;
   prompt: string;
@@ -61,7 +98,80 @@ export type AgentConfig = {
   voiceId: string;
   knowledgeBase: KnowledgeBaseEntry[];
   toolIds: string[];
+  voice: VoiceTuning;
+  turn: TurnTuning;
 };
+
+/**
+ * The shared body for create and update. These two used to be near-identical copies that
+ * drifted apart field by field; building one object keeps a new setting from landing on
+ * only one of the two paths.
+ */
+function conversationConfigBody(input: AgentConfig) {
+  const [primaryFiller, ...extraFillers] = input.turn.fillerMessages;
+
+  return {
+    agent: {
+      first_message: input.firstMessage,
+      language: "en",
+      prompt: {
+        prompt: input.prompt,
+        // Benchmarked 2026-07-30 against the alternatives: ~1.3s vs ~3.5s for
+        // gemini-3.5-flash. Response latency dominates the feel of a voice call.
+        llm: "gemini-3.1-flash-lite",
+        temperature: 0,
+        // Explicitly cleared: PATCH merges rather than replaces, so a stale
+        // reasoning_effort left over from a different (auto-routed) model can otherwise
+        // persist and 400 against gemini-2.0-flash, which doesn't support that field.
+        reasoning_effort: null,
+        // Voice replies should be a sentence or two; uncapped generation is a real
+        // source of response latency.
+        max_tokens: 250,
+        knowledge_base: input.knowledgeBase,
+        tool_ids: input.toolIds,
+        // We pay to RAG-index every synced doc (see computeRagIndex); leaving this off
+        // meant those indexes went unused and the documents were injected as raw text.
+        rag: { enabled: true, embedding_model: RAG_MODEL },
+        built_in_tools: {
+          end_call: {
+            name: "end_call",
+            description:
+              "Ends the call once the purpose is accomplished and there is nothing more to help with.",
+          },
+        },
+      },
+    },
+    turn: {
+      turn_timeout: input.turn.turnTimeout,
+      turn_eagerness: input.turn.eagerness,
+      interruption_ignore_terms: input.turn.interruptionIgnoreTerms,
+      merge_with_default_ignore_terms: true,
+      soft_timeout_config: {
+        timeout_seconds: input.turn.softTimeoutSeconds,
+        message: primaryFiller,
+        additional_soft_timeout_messages: extraFillers,
+        randomize_fillers: true,
+        // An LLM-generated filler would add exactly the latency the filler exists to cover.
+        use_llm_generated_message: false,
+      },
+    },
+    tts: {
+      voice_id: input.voiceId,
+      model_id: input.voice.modelId,
+      stability: input.voice.stability,
+      similarity_boost: input.voice.similarityBoost,
+      speed: input.voice.speed,
+      expressive_mode: input.voice.expressiveMode,
+      // 3 is "max latency optimizations" with the text normalizer still running. 4 is the
+      // same but switches the normalizer off, which mispronounces exactly what a leasing
+      // agent says all day — rents, dates, phone numbers. 3 buys correctness for ~nothing.
+      optimize_streaming_latency: 3,
+      // Normalizes after the LLM rather than instructing the LLM to spell numbers out, so
+      // transcripts keep "$1,450" while the audio still says it correctly.
+      text_normalisation_type: "elevenlabs",
+    },
+  };
+}
 
 export function createAgent(input: AgentConfig) {
   return request<{ agent_id: string }>("/convai/agents/create", {
@@ -69,34 +179,7 @@ export function createAgent(input: AgentConfig) {
     body: {
       name: input.name,
       conversation_config: {
-        agent: {
-          first_message: input.firstMessage,
-          language: "en",
-          prompt: {
-            prompt: input.prompt,
-            // Benchmarked 2026-07-30 against the alternatives: ~1.3s vs ~3.5s for
-            // gemini-3.5-flash. Response latency dominates the feel of a voice call.
-            llm: "gemini-3.1-flash-lite",
-            temperature: 0,
-            // Explicitly cleared: PATCH merges rather than replaces, so a stale
-            // reasoning_effort left over from a different (auto-routed) model can otherwise
-            // persist and 400 against gemini-2.0-flash, which doesn't support that field.
-            reasoning_effort: null,
-            // Voice replies should be a sentence or two; uncapped generation is a real
-            // source of response latency.
-            max_tokens: 250,
-            knowledge_base: input.knowledgeBase,
-            tool_ids: input.toolIds,
-            built_in_tools: {
-              end_call: {
-                name: "end_call",
-                description:
-                  "Ends the call once the purpose is accomplished and there is nothing more to help with.",
-              },
-            },
-          },
-        },
-        tts: { voice_id: input.voiceId, model_id: "eleven_flash_v2" },
+        ...conversationConfigBody(input),
         conversation: { text_only: false },
       },
     },
@@ -108,36 +191,7 @@ export function updateAgent(agentId: string, input: AgentConfig) {
     method: "PATCH",
     body: {
       name: input.name,
-      conversation_config: {
-        agent: {
-          first_message: input.firstMessage,
-          language: "en",
-          prompt: {
-            prompt: input.prompt,
-            // Benchmarked 2026-07-30 against the alternatives: ~1.3s vs ~3.5s for
-            // gemini-3.5-flash. Response latency dominates the feel of a voice call.
-            llm: "gemini-3.1-flash-lite",
-            temperature: 0,
-            // Explicitly cleared: PATCH merges rather than replaces, so a stale
-            // reasoning_effort left over from a different (auto-routed) model can otherwise
-            // persist and 400 against gemini-2.0-flash, which doesn't support that field.
-            reasoning_effort: null,
-            // Voice replies should be a sentence or two; uncapped generation is a real
-            // source of response latency.
-            max_tokens: 250,
-            knowledge_base: input.knowledgeBase,
-            tool_ids: input.toolIds,
-            built_in_tools: {
-              end_call: {
-                name: "end_call",
-                description:
-                  "Ends the call once the purpose is accomplished and there is nothing more to help with.",
-              },
-            },
-          },
-        },
-        tts: { voice_id: input.voiceId, model_id: "eleven_flash_v2" },
-      },
+      conversation_config: conversationConfigBody(input),
     },
   });
 }

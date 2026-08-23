@@ -9,7 +9,57 @@ import {
 import { internal } from "./_generated/api";
 import * as el from "./elevenLabsApi";
 
-const DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
+// Jessica — premade, American, female, "conversational" use case. Premade rather than a
+// professional clone on purpose: a PVC run at the wrong similarity_boost is what made the
+// previous voice sound uncanny, and premade voices track model upgrades.
+const DEFAULT_VOICE_ID = "cgSgspJ2msm6clMCkdW9";
+
+/**
+ * Voice and turn-taking settings live here rather than in the agents table on purpose: they
+ * are product decisions, not per-user settings, and keeping them in code is what stops them
+ * drifting in the ElevenLabs dashboard. The audit behind these numbers, including the
+ * latency trade-offs, is in docs/voice-quality-research.md.
+ */
+const VOICE_TUNING: el.VoiceTuning = {
+  // Measured time-to-first-audio on 2026-08-23, 5 interleaved runs each:
+  //   eleven_flash_v2_5        0.687s
+  //   eleven_flash_v2          0.717s  (what we ran before; slower AND older)
+  //   eleven_v3_conversational 0.872s  <- chosen
+  // The +185ms was accepted deliberately after an A/B listen: this is the only model that
+  // supports expressive mode, and the difference in warmth was audible enough to pay for.
+  // Drop to "eleven_flash_v2_5" with expressiveMode: false to buy that time back.
+  modelId: "eleven_v3_conversational",
+  // 0.40–0.50 is the documented conversational band: dynamic delivery without the
+  // instability of going lower. 0.60+ is where voices start sounding monotonous.
+  stability: 0.45,
+  // The premade-voice default. Pushing this higher chases the source recording at the
+  // cost of audible distortion artifacts.
+  similarityBoost: 0.75,
+  speed: 1.0,
+  // The reason we are on eleven_v3_conversational at all.
+  expressiveMode: true,
+};
+
+const TURN_TUNING: el.TurnTuning = {
+  // 7s cut callers off while they worked out a budget or a move-in date.
+  turnTimeout: 10,
+  // The qualification flow collects a name and a callback number digit by digit, which is
+  // the documented case for "patient" — "eager" clips people mid-number.
+  eagerness: "patient",
+  softTimeoutSeconds: 3,
+  fillerMessages: ["Just a sec…", "One moment…", "Let me pull that up…"],
+  interruptionIgnoreTerms: [
+    "okay",
+    "ok",
+    "mm-hmm",
+    "uh-huh",
+    "yeah",
+    "yep",
+    "right",
+    "sure",
+    "got it",
+  ],
+};
 
 const LEASING_PROMPT = `You are Emily, the leasing receptionist for Maple Court Apartments, answering by phone or
 voice chat, 24/7. You are warm, brief, and efficient — the way a good in-person leasing
@@ -265,6 +315,8 @@ export const saveAgent = action({
       voiceId: args.voiceId ?? existing?.voiceId ?? DEFAULT_VOICE_ID,
       knowledgeBase,
       toolIds,
+      voice: VOICE_TUNING,
+      turn: TURN_TUNING,
     };
 
     const elevenLabsAgentId = existing
@@ -306,6 +358,8 @@ export const pushKnowledgeBase = internalAction({
       voiceId: agent.voiceId,
       knowledgeBase,
       toolIds,
+      voice: VOICE_TUNING,
+      turn: TURN_TUNING,
     });
   },
 });
@@ -347,6 +401,8 @@ export const ensure = internalAction({
       voiceId: DEFAULT_VOICE_ID,
       knowledgeBase,
       toolIds,
+      voice: VOICE_TUNING,
+      turn: TURN_TUNING,
     });
     await ctx.runMutation(internal.agents.upsert, {
       elevenLabsAgentId: created.agent_id,
