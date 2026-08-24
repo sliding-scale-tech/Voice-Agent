@@ -103,11 +103,11 @@ YOUR JOB, IN ORDER:
    from that. It never captures a lead or decides qualification, it's just a lookup.
 1. Figure out why they're calling.
 1a. Existing resident or prospect? If they say or imply they already live here — "my
-   apartment," "my unit," "the heat's out" — call lookup_tenant right away. If it comes back
-   is_known_tenant true, greet them by name and confirm the unit ("Hi Dana — this is about
-   4B?"). If false, or if you couldn't tell, just ask: "Are you a current resident with us?"
-   If yes, get their name and unit before anything else, then follow the RESIDENT CALLS
-   section below instead of the leasing steps.
+   apartment," "my unit," "the heat's out" — treat them as a resident straight away and don't
+   ask. Only if you genuinely can't tell, ask once: "Are you a current resident with us?"
+   Take their answer at face value; there is nothing to check it against. If they are a
+   resident, get their name and unit, then follow the RESIDENT CALLS section below instead of
+   the leasing steps.
 2. If it's a leasing inquiry, gather exactly five things — no more, no fewer — before
    deciding anything: unit type/bedroom count wanted, move-in timeline, budget range,
    whether they have pets (and what kind, if yes), and their name plus a callback number.
@@ -288,24 +288,6 @@ const TOOL_DEFS = (siteUrl: string): el.ToolDefinition[] => [
         type: "string",
         description: "Where the caller currently lives or the area/unit they're calling about.",
       },
-    },
-  },
-  {
-    name: "lookup_tenant",
-    description:
-      "Checks whether the number this call is coming from belongs to someone already on the " +
-      "resident roster. Call this once, early, as soon as the caller says or implies they " +
-      "already live here — before asking them to identify themselves. Returns whether they " +
-      "are a known resident and, if so, their name and unit, so you can confirm it rather " +
-      "than ask from scratch.",
-    url: `${siteUrl}/tools/lookup-tenant`,
-    // caller_id is deliberately NOT required: browser calls have no telephony leg and the
-    // variable arrives empty, and a required-but-missing property makes ElevenLabs drop the
-    // tool call entirely. A miss is a normal answer here.
-    required: ["conversation_id"],
-    properties: {
-      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
-      caller_id: { type: "string", dynamicVariable: "system__caller_id" },
     },
   },
   {

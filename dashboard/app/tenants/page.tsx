@@ -2,15 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  AlertTriangle,
-  ClipboardList,
-  UserCheck,
-  Check,
-  X,
-  Trash2,
-  Gauge,
-} from "lucide-react";
+import { AlertTriangle, ClipboardList, CheckCircle2, X, Trash2, Gauge } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -29,18 +21,6 @@ const SEVERITY_LABELS: Record<SeverityBand, string> = {
   low: "Low (1-3)",
 };
 
-const TENANT_STATUS_STYLES: Record<string, string> = {
-  unverified: "bg-warning/15 text-warning-foreground",
-  confirmed: "bg-success/15 text-success",
-  rejected: "bg-muted text-muted-foreground",
-};
-
-const TENANT_STATUS_LABELS: Record<string, string> = {
-  unverified: "Unverified",
-  confirmed: "Confirmed",
-  rejected: "Rejected",
-};
-
 const inputClass =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring";
 
@@ -55,10 +35,8 @@ function formatWhen(ms: number) {
 
 type IssueRow = {
   _id: Id<"tenantIssues">;
-  tenantId?: Id<"tenants">;
-  tenantName: string | null;
-  tenantUnit: string | null;
-  tenantStatus: string | null;
+  callerName?: string;
+  unit?: string;
   callerNumber?: string;
   reason: string;
   category?: string;
@@ -72,22 +50,14 @@ type IssueRow = {
 export default function TenantsPage() {
   const toast = useToast();
   const issues = useQuery(api.tenants.issues);
-  const roster = useQuery(api.tenants.roster);
   const stats = useQuery(api.tenants.stats);
 
-  const setTenantStatus = useMutation(api.tenants.setTenantStatus);
   const updateIssue = useMutation(api.tenants.updateIssue);
-  const updateTenant = useMutation(api.tenants.updateTenant);
-  const removeTenant = useMutation(api.tenants.removeTenant);
+  const removeIssue = useMutation(api.tenants.removeIssue);
 
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("open");
   const [selected, setSelected] = useState<Id<"tenantIssues"> | null>(null);
-
-  const unverified = useMemo(
-    () => roster?.filter((t) => t.status === "unverified") ?? [],
-    [roster],
-  );
 
   const filtered = useMemo(() => {
     if (!issues) return undefined;
@@ -105,8 +75,9 @@ export default function TenantsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Tenants</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Residents Emily identified on calls, and what they called about. Severity is Emily&apos;s
-          judgment during the call — you can change it here, and the original is kept.
+          Residents who called, what they called about, and how urgent it is. Names and units are
+          recorded as the caller gave them — nothing is verified. Severity is Emily&apos;s judgment
+          on the call; you can change it here and the original is kept.
         </p>
       </div>
 
@@ -118,66 +89,7 @@ export default function TenantsPage() {
             label="High severity"
             value={String(stats.highSeverityOpen)}
           />
-          <StatCard
-            icon={UserCheck}
-            label="Awaiting review"
-            value={String(stats.unverifiedTenants)}
-          />
-        </div>
-      )}
-
-      {/* Sits above the table on purpose: a roster that only fills itself from calls is only
-          trustworthy if the confirm/reject queue is the first thing you see. */}
-      {unverified.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-sm font-semibold">Needs review</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Emily added these from calls. Confirm the ones who really are residents — confirmed
-            names and units are never overwritten by a later call.
-          </p>
-          <div className="mt-4 space-y-2">
-            {unverified.map((tenant) => (
-              <div
-                key={tenant._id}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 p-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">
-                    {tenant.name}
-                    {tenant.unit && (
-                      <span className="ml-2 text-xs text-muted-foreground">Unit {tenant.unit}</span>
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {tenant.phone ?? "No number captured"}
-                    {tenant.identifiedBy === "self_reported" && " · said so on the call"}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      await setTenantStatus({ tenantId: tenant._id, status: "confirmed" });
-                      toast("Resident confirmed");
-                    }}
-                    className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    Confirm
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await setTenantStatus({ tenantId: tenant._id, status: "rejected" });
-                      toast("Marked as not a resident");
-                    }}
-                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Not a resident
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <StatCard icon={CheckCircle2} label="Resolved" value={String(stats.resolvedIssues)} />
         </div>
       )}
 
@@ -208,7 +120,7 @@ export default function TenantsPage() {
       {filtered?.length === 0 && (
         <div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           {issues?.length === 0
-            ? "No resident calls logged yet. Emily adds people here as they call in."
+            ? "No resident calls logged yet. Emily adds them here as they call in."
             : "No issues match this filter."}
         </div>
       )}
@@ -230,12 +142,11 @@ export default function TenantsPage() {
           <thead>
             <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
               <th className="px-4 py-3 font-medium">When</th>
-              <th className="px-4 py-3 font-medium">Resident</th>
+              <th className="px-4 py-3 font-medium">Caller</th>
               <th className="px-4 py-3 font-medium">Phone</th>
               <th className="px-4 py-3 font-medium">Reason</th>
               <th className="px-4 py-3 font-medium">Severity</th>
               <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Verified</th>
             </tr>
           </thead>
           <tbody>
@@ -252,9 +163,9 @@ export default function TenantsPage() {
                   {formatWhen(issue.createdAt)}
                 </td>
                 <td className="px-4 py-3">
-                  <div className="font-medium">{issue.tenantName ?? "—"}</div>
-                  {issue.tenantUnit && (
-                    <div className="text-xs text-muted-foreground">Unit {issue.tenantUnit}</div>
+                  <div className="font-medium">{issue.callerName ?? "—"}</div>
+                  {issue.unit && (
+                    <div className="text-xs text-muted-foreground">Unit {issue.unit}</div>
                   )}
                 </td>
                 <td className="px-4 py-3 tabular-nums text-muted-foreground">
@@ -270,28 +181,7 @@ export default function TenantsPage() {
                   <SeverityBadge severity={issue.severity} />
                 </td>
                 <td className="px-4 py-3">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      issue.status === "open"
-                        ? "bg-warning/15 text-warning-foreground"
-                        : "bg-success/15 text-success"
-                    }`}
-                  >
-                    {issue.status === "open" ? "Open" : "Resolved"}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  {issue.tenantStatus ? (
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        TENANT_STATUS_STYLES[issue.tenantStatus]
-                      }`}
-                    >
-                      {TENANT_STATUS_LABELS[issue.tenantStatus]}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
+                  <StatusBadge status={issue.status} />
                 </td>
               </motion.tr>
             ))}
@@ -332,27 +222,15 @@ export default function TenantsPage() {
           <IssueModal
             issue={selectedIssue}
             onClose={() => setSelected(null)}
-            onSaveIssue={async (patch) => {
+            onSave={async (patch) => {
               await updateIssue({ issueId: selectedIssue._id, ...patch });
               setSelected(null);
               toast("Issue updated");
             }}
-            onSaveTenant={async (patch) => {
-              if (!selectedIssue.tenantId) return;
-              await updateTenant({ tenantId: selectedIssue.tenantId, ...patch });
-              toast("Resident updated");
-            }}
-            onRejectTenant={async () => {
-              if (!selectedIssue.tenantId) return;
-              await setTenantStatus({ tenantId: selectedIssue.tenantId, status: "rejected" });
+            onDelete={async () => {
+              await removeIssue({ issueId: selectedIssue._id });
               setSelected(null);
-              toast("Marked as not a resident");
-            }}
-            onDeleteTenant={async () => {
-              if (!selectedIssue.tenantId) return;
-              await removeTenant({ tenantId: selectedIssue.tenantId });
-              setSelected(null);
-              toast("Resident removed — their calls are kept");
+              toast("Issue deleted");
             }}
           />
         )}
@@ -369,6 +247,20 @@ function SeverityBadge({ severity }: { severity: number }) {
       }`}
     >
       {severity}/10
+    </span>
+  );
+}
+
+function StatusBadge({ status }: { status: "open" | "resolved" }) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+        status === "open"
+          ? "bg-warning/15 text-warning-foreground"
+          : "bg-success/15 text-success"
+      }`}
+    >
+      {status === "open" ? "Open" : "Resolved"}
     </span>
   );
 }
@@ -392,15 +284,16 @@ function IssueCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-medium">{issue.tenantName ?? "—"}</div>
-          {issue.tenantUnit && (
-            <div className="text-xs text-muted-foreground">Unit {issue.tenantUnit}</div>
-          )}
+          <div className="font-medium">{issue.callerName ?? "—"}</div>
+          {issue.unit && <div className="text-xs text-muted-foreground">Unit {issue.unit}</div>}
         </div>
         <SeverityBadge severity={issue.severity} />
       </div>
       <p className="mt-2 text-sm">{issue.reason}</p>
-      <div className="mt-2 text-xs text-muted-foreground">{formatWhen(issue.createdAt)}</div>
+      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+        {formatWhen(issue.createdAt)}
+        {issue.callerNumber && <span className="tabular-nums">· {issue.callerNumber}</span>}
+      </div>
     </motion.button>
   );
 }
@@ -408,27 +301,25 @@ function IssueCard({
 function IssueModal({
   issue,
   onClose,
-  onSaveIssue,
-  onSaveTenant,
-  onRejectTenant,
-  onDeleteTenant,
+  onSave,
+  onDelete,
 }: {
   issue: IssueRow;
   onClose: () => void;
-  onSaveIssue: (patch: {
+  onSave: (patch: {
     severity?: number;
     reason?: string;
+    callerName?: string;
+    unit?: string;
     status?: "open" | "resolved";
   }) => void;
-  onSaveTenant: (patch: { name?: string; unit?: string; phone?: string }) => void;
-  onRejectTenant: () => void;
-  onDeleteTenant: () => void;
+  onDelete: () => void;
 }) {
   const [severity, setSeverity] = useState(issue.severity);
   const [reason, setReason] = useState(issue.reason);
   const [status, setStatus] = useState<"open" | "resolved">(issue.status);
-  const [name, setName] = useState(issue.tenantName ?? "");
-  const [unit, setUnit] = useState(issue.tenantUnit ?? "");
+  const [callerName, setCallerName] = useState(issue.callerName ?? "");
+  const [unit, setUnit] = useState(issue.unit ?? "");
 
   return (
     <motion.div
@@ -447,7 +338,7 @@ function IssueModal({
         className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Resident issue</h2>
+          <h2 className="text-lg font-semibold">Resident call</h2>
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent"
@@ -460,6 +351,27 @@ function IssueModal({
           <div className="rounded-lg border border-border bg-muted/30 p-3">
             <div className="text-xs font-medium text-muted-foreground">Emily&apos;s reasoning</div>
             <div className="mt-0.5 text-sm">{issue.severityReason}</div>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <label className="block flex-1 space-y-1.5">
+            <span className="text-sm font-medium">Caller</span>
+            <input
+              value={callerName}
+              onChange={(e) => setCallerName(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="block flex-1 space-y-1.5">
+            <span className="text-sm font-medium">Unit</span>
+            <input value={unit} onChange={(e) => setUnit(e.target.value)} className={inputClass} />
+          </label>
+        </div>
+
+        {issue.callerNumber && (
+          <div className="text-xs text-muted-foreground">
+            Called from <span className="tabular-nums">{issue.callerNumber}</span>
           </div>
         )}
 
@@ -502,46 +414,14 @@ function IssueModal({
           </select>
         </label>
 
-        {issue.tenantId && (
-          <div className="space-y-3 rounded-lg border border-border p-3">
-            <div className="text-xs font-medium text-muted-foreground">Resident record</div>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Name</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Unit</span>
-              <input value={unit} onChange={(e) => setUnit(e.target.value)} className={inputClass} />
-            </label>
-            <button
-              onClick={() => onSaveTenant({ name, unit })}
-              className="rounded-lg border border-input px-3 py-1.5 text-sm hover:bg-accent"
-            >
-              Save resident
-            </button>
-          </div>
-        )}
-
         <div className="flex items-center justify-between pt-2">
-          {issue.tenantId ? (
-            <div className="flex gap-1">
-              <button
-                onClick={onRejectTenant}
-                className="rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
-              >
-                Not a resident
-              </button>
-              <button
-                onClick={onDeleteTenant}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
-              </button>
-            </div>
-          ) : (
-            <span />
-          )}
+          <button
+            onClick={onDelete}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
           <div className="flex gap-2">
             <button
               onClick={onClose}
@@ -550,7 +430,7 @@ function IssueModal({
               Cancel
             </button>
             <button
-              onClick={() => onSaveIssue({ severity, reason, status })}
+              onClick={() => onSave({ severity, reason, callerName, unit, status })}
               disabled={!reason.trim()}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >

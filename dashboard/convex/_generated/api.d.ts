@@ -18,7 +18,6 @@ import type * as leadScoring from "../leadScoring.js";
 import type * as notifications from "../notifications.js";
 import type * as orgSettings from "../orgSettings.js";
 import type * as otlp from "../otlp.js";
-import type * as phone from "../phone.js";
 import type * as properties from "../properties.js";
 import type * as qualifications from "../qualifications.js";
 import type * as severity from "../severity.js";
@@ -44,7 +43,6 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   orgSettings: typeof orgSettings;
   otlp: typeof otlp;
-  phone: typeof phone;
   properties: typeof properties;
   qualifications: typeof qualifications;
   severity: typeof severity;

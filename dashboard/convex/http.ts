@@ -2,7 +2,6 @@ import { httpRouter, type GenericActionCtx } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
-import { normalizePhone } from "./phone";
 import { clampSeverity } from "./severity";
 
 const http = httpRouter();
@@ -235,46 +234,8 @@ http.route({
 // --- Resident triage ------------------------------------------------------
 
 /**
- * Answers "is this number already on the resident roster?" so the agent can greet a known
- * resident by name instead of interrogating them.
- *
- * caller_id is bound to ElevenLabs' system__caller_id dynamic variable and is absent on
- * browser/WebRTC calls, where there is no telephony leg at all. A miss is a completely normal
- * result, not an error — this route must never 400 on a missing number, or the agent ends up
- * apologising to the caller for a failure that didn't happen.
- */
-http.route({
-  path: "/tools/lookup-tenant",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const body = await request.json();
-    const { conversation_id: conversationId, caller_id: callerId } = body;
-
-    if (!conversationId) {
-      return Response.json({ error: "missing conversation_id" }, { status: 400 });
-    }
-
-    const normalized = normalizePhone(callerId);
-    const tenant = normalized
-      ? await ctx.runQuery(internal.tenants.findByPhoneInternal, {
-          phoneNormalized: normalized,
-        })
-      : null;
-
-    return Response.json({
-      is_known_tenant: Boolean(tenant),
-      tenant_name: tenant?.name ?? null,
-      unit: tenant?.unit ?? null,
-      // Always true. Caller ID identifies a phone, not a person — households and roommates
-      // share numbers, so the agent confirms the name out loud either way.
-      needs_verification: true,
-      caller_id_available: Boolean(normalized),
-    });
-  }),
-});
-
-/**
- * Records that an existing resident called, why, and how bad it is.
+ * Records that a resident called, why, and how bad it is. Nothing is verified and nothing is
+ * matched against a roster — the name and unit are stored exactly as the caller gave them.
  *
  * Unlike check_qualification, the severity here is the model's judgment rather than a
  * deterministic rule — triage has to weigh what the caller describes. clampSeverity is the
@@ -307,20 +268,11 @@ http.route({
 
     // Telephony's number beats a spoken one: the caller reciting digits is the lossier path.
     const phone = callerId?.trim() || callerPhone?.trim() || undefined;
-    const identifiedBy = callerId?.trim() ? ("caller_id" as const) : ("self_reported" as const);
-
-    const tenantId = await ctx.runMutation(internal.tenants.upsertFromCall, {
-      name: callerName,
-      unit,
-      phone,
-      identifiedBy,
-    });
 
     const clamped = clampSeverity(severity);
 
     await ctx.runMutation(internal.tenants.logIssue, {
       elevenLabsConversationId: conversationId,
-      tenantId: tenantId ?? undefined,
       callerName,
       unit,
       callerNumber: phone,
