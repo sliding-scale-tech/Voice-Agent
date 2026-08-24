@@ -20,6 +20,7 @@ import type * as orgSettings from "../orgSettings.js";
 import type * as otlp from "../otlp.js";
 import type * as properties from "../properties.js";
 import type * as qualifications from "../qualifications.js";
+import type * as sanitize from "../sanitize.js";
 import type * as severity from "../severity.js";
 import type * as smsBot from "../smsBot.js";
 import type * as tenants from "../tenants.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   otlp: typeof otlp;
   properties: typeof properties;
   qualifications: typeof qualifications;
+  sanitize: typeof sanitize;
   severity: typeof severity;
   smsBot: typeof smsBot;
   tenants: typeof tenants;

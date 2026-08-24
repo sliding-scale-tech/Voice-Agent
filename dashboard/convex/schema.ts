@@ -155,7 +155,12 @@ export default defineSchema({
 
     callerName: v.optional(v.string()),
     unit: v.optional(v.string()),
+    // Two different facts, kept apart on purpose. callerNumber is where the call came FROM
+    // (telephony caller ID, automatic, always correct). callbackNumber is what the resident
+    // asked us to reach them on, spoken aloud — more intentional, but transcribed digits get
+    // misheard, so it must never overwrite the one we know is right.
     callerNumber: v.optional(v.string()),
+    callbackNumber: v.optional(v.string()),
 
     reason: v.string(),
     category: v.optional(v.string()),

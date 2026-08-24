@@ -38,6 +38,7 @@ type IssueRow = {
   callerName?: string;
   unit?: string;
   callerNumber?: string;
+  callbackNumber?: string;
   reason: string;
   category?: string;
   severity: number;
@@ -168,8 +169,13 @@ export default function TenantsPage() {
                     <div className="text-xs text-muted-foreground">Unit {issue.unit}</div>
                   )}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-muted-foreground">
-                  {issue.callerNumber ?? "—"}
+                <td className="px-4 py-3 text-muted-foreground">
+                  <div className="tabular-nums">{issue.callerNumber ?? "—"}</div>
+                  {issue.callbackNumber && issue.callbackNumber !== issue.callerNumber && (
+                    <div className="text-xs tabular-nums">
+                      callback: {issue.callbackNumber}
+                    </div>
+                  )}
                 </td>
                 <td className="max-w-xs px-4 py-3">
                   <div className="truncate">{issue.reason}</div>
@@ -292,7 +298,9 @@ function IssueCard({
       <p className="mt-2 text-sm">{issue.reason}</p>
       <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
         {formatWhen(issue.createdAt)}
-        {issue.callerNumber && <span className="tabular-nums">· {issue.callerNumber}</span>}
+        {(issue.callbackNumber ?? issue.callerNumber) && (
+          <span className="tabular-nums">· {issue.callbackNumber ?? issue.callerNumber}</span>
+        )}
       </div>
     </motion.button>
   );
@@ -369,9 +377,21 @@ function IssueModal({
           </label>
         </div>
 
-        {issue.callerNumber && (
-          <div className="text-xs text-muted-foreground">
-            Called from <span className="tabular-nums">{issue.callerNumber}</span>
+        {(issue.callerNumber || issue.callbackNumber) && (
+          <div className="space-y-0.5 text-xs text-muted-foreground">
+            {issue.callerNumber && (
+              <div>
+                Called from <span className="tabular-nums">{issue.callerNumber}</span>
+              </div>
+            )}
+            {issue.callbackNumber && issue.callbackNumber !== issue.callerNumber && (
+              <div>
+                Asked to be called back on{" "}
+                <span className="font-medium tabular-nums text-foreground">
+                  {issue.callbackNumber}
+                </span>
+              </div>
+            )}
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { clampSeverity } from "./severity";
+import { realValue, realPhone } from "./sanitize";
 
 // --- Reads ----------------------------------------------------------------
 
@@ -58,6 +59,7 @@ export const logIssue = internalMutation({
     callerName: v.optional(v.string()),
     unit: v.optional(v.string()),
     callerNumber: v.optional(v.string()),
+    callbackNumber: v.optional(v.string()),
     reason: v.string(),
     category: v.optional(v.string()),
     severity: v.number(),
@@ -74,11 +76,19 @@ export const logIssue = internalMutation({
       )
       .first();
 
+    const cleaned = {
+      ...fields,
+      callerName: realValue(fields.callerName),
+      unit: realValue(fields.unit),
+      callerNumber: realPhone(fields.callerNumber),
+      callbackNumber: realPhone(fields.callbackNumber),
+    };
+
     const patch: Record<string, unknown> = {
       severity: clampSeverity(severity),
       updatedAt: now,
     };
-    for (const [key, value] of Object.entries(fields)) {
+    for (const [key, value] of Object.entries(cleaned)) {
       if (value !== undefined) patch[key] = value;
     }
 

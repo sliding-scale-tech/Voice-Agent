@@ -30,14 +30,15 @@ export const SEVERITY_RUBRIC = [
     label: "Real problem",
     detail:
       "Needs a real repair but the unit is livable: contained leak, broken appliance, pests, " +
-      "a repeated noise complaint.",
+      "a repeated noise complaint, or a smoke or fire alarm sounding continuously and not " +
+      "resetting.",
   },
   {
     band: "3-4",
     label: "Routine",
     detail:
-      "Minor and schedulable: dripping faucet, burnt-out bulb, squeaky door, parking or " +
-      "amenity question.",
+      "Minor and schedulable: dripping faucet, burnt-out bulb, squeaky door, an alarm " +
+      "chirping intermittently for a low battery, parking or amenity question.",
   },
   {
     band: "1-2",

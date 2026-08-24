@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { clampSeverity } from "./severity";
+import { realPhone } from "./sanitize";
 
 const http = httpRouter();
 
@@ -266,8 +267,12 @@ http.route({
       return Response.json({ error: "missing conversation_id or reason" }, { status: 400 });
     }
 
-    // Telephony's number beats a spoken one: the caller reciting digits is the lossier path.
-    const phone = callerId?.trim() || callerPhone?.trim() || undefined;
+    // Kept apart rather than collapsed into one field. The telephony number is always
+    // correct; a spoken one is what they actually want to be called back on but goes through
+    // ASR, so digits get misheard. On a browser call there is no telephony leg at all, and
+    // the spoken number is the only number we will ever have.
+    const telephony = realPhone(callerId);
+    const spoken = realPhone(callerPhone);
 
     const clamped = clampSeverity(severity);
 
@@ -275,7 +280,8 @@ http.route({
       elevenLabsConversationId: conversationId,
       callerName,
       unit,
-      callerNumber: phone,
+      callerNumber: telephony ?? spoken,
+      callbackNumber: spoken,
       reason,
       category,
       severity: clamped,
@@ -286,7 +292,7 @@ http.route({
       elevenLabsConversationId: conversationId,
       reason,
       severity: clamped,
-      callerNumber: phone,
+      callerNumber: telephony ?? spoken,
     });
 
     return Response.json({ logged: true, severity: clamped });
