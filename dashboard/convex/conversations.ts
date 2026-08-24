@@ -15,8 +15,40 @@ function monthKey(at: number) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/**
+ * True when a conversation belongs on the Tenants page rather than in the lead list. Checked
+ * two ways because neither alone is sufficient: a severity-8+ resident call has its intent
+ * overwritten to "escalation" by markEscalation, and an issue deleted from the Tenants page
+ * leaves its conversation row behind with intent "maintenance".
+ */
+function isResidentCall(
+  conversation: { elevenLabsConversationId?: string; intent?: string },
+  residentCallIds: Set<string>,
+): boolean {
+  if (conversation.intent === "maintenance") return true;
+  return Boolean(
+    conversation.elevenLabsConversationId &&
+      residentCallIds.has(conversation.elevenLabsConversationId),
+  );
+}
+
 // --- Reads ----------------------------------------------------------------
 
+/**
+ * The lead log. Resident calls are deliberately excluded — they belong on the Tenants page,
+ * and a maintenance request is not a lead.
+ *
+ * Membership is decided by whether a tenantIssue exists for the conversation rather than by
+ * intent, because a severity-8+ resident call gets its intent overwritten to "escalation" by
+ * markEscalation; filtering on intent alone would let those leak back in here.
+ *
+ * intent === "maintenance" is checked as well, so that deleting an issue from the Tenants page
+ * doesn't pop its call back into the lead list as an orphan.
+ *
+ * Caveat inherited from filtering after pagination: a page of 15 can come back shorter when
+ * some of those 15 were resident calls. Fine at this volume, and the same thing the page's
+ * own intent/outcome filters already do.
+ */
 export const history = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
@@ -27,9 +59,14 @@ export const history = query({
       .paginate(args.paginationOpts);
 
     const allQualifications = await ctx.db.query("qualifications").collect();
+    const residentCallIds = new Set(
+      (await ctx.db.query("tenantIssues").collect()).map((i) => i.elevenLabsConversationId),
+    );
 
     const page = await Promise.all(
-      result.page.map(async (c) => {
+      result.page
+        .filter((c) => !isResidentCall(c, residentCallIds))
+        .map(async (c) => {
         const messages = await ctx.db
           .query("messages")
           .withIndex("by_conversation", (q) => q.eq("conversationId", c._id))
@@ -142,10 +179,16 @@ export const appendMessage = mutation({
   },
 });
 
+/** Lead funnel — resident calls are excluded for the same reason they are in `history`. */
 export const funnel = query({
   args: {},
   handler: async (ctx) => {
-    const rows = await ctx.db.query("conversations").collect();
+    const residentCallIds = new Set(
+      (await ctx.db.query("tenantIssues").collect()).map((i) => i.elevenLabsConversationId),
+    );
+    const rows = (await ctx.db.query("conversations").collect()).filter(
+      (c) => !isResidentCall(c, residentCallIds),
+    );
     return {
       callsAnswered: rows.length,
       leadsQualified: rows.filter(

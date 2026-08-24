@@ -15,7 +15,33 @@ export const issues = query({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query("tenantIssues").collect();
-    return rows.sort((a, b) => b.severity - a.severity || b.createdAt - a.createdAt);
+
+    // Join the call itself so the row can expand into a transcript the same way the Leads
+    // page does. conversationId only exists once the post-call webhook has landed, so
+    // everything from the conversation is optional here.
+    const withCall = await Promise.all(
+      rows.map(async (issue) => {
+        const conv = issue.conversationId ? await ctx.db.get(issue.conversationId) : null;
+        const messageCount = conv
+          ? (
+              await ctx.db
+                .query("messages")
+                .withIndex("by_conversation", (q) => q.eq("conversationId", conv._id))
+                .collect()
+            ).length
+          : 0;
+        return {
+          ...issue,
+          channel: conv?.channel ?? null,
+          durationSec: conv?.durationSec ?? null,
+          startedAt: conv?.startedAt ?? null,
+          callSummary: conv?.summary ?? null,
+          messageCount,
+        };
+      }),
+    );
+
+    return withCall.sort((a, b) => b.severity - a.severity || b.createdAt - a.createdAt);
   },
 });
 

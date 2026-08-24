@@ -28,6 +28,16 @@ const INTENT_LABELS: Record<string, string> = {
   unclear: "Unclear",
 };
 
+/**
+ * Maintenance is a real intent and still renders as a badge, but it is deliberately not
+ * offered as a filter here: resident calls are excluded from this list server-side, so picking
+ * it could only ever return nothing. Escalation stays — an off-topic or unclear caller can
+ * still be escalated without being a resident.
+ */
+const INTENT_FILTER_OPTIONS = Object.entries(INTENT_LABELS).filter(
+  ([value]) => value !== "maintenance",
+);
+
 const OUTCOME_STYLES: Record<string, string> = {
   tour_booked: "bg-success/15 text-success",
   disqualified: "bg-warning/15 text-warning-foreground",
@@ -42,7 +52,7 @@ const OUTCOME_LABELS: Record<string, string> = {
   logged_only: "Logged only",
 };
 
-export default function HistoryPage() {
+export default function LeadsPage() {
   const {
     results: history,
     status: historyStatus,
@@ -75,8 +85,11 @@ export default function HistoryPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">History</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Every call, with its full transcript.</p>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Leads</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every prospective-renter call, with its full transcript. Calls from existing residents
+          live on the Tenants page instead.
+        </p>
       </div>
 
       {/* "Minutes left" card removed along with the 15-min/month cap it tracked — no longer
@@ -98,7 +111,7 @@ export default function HistoryPage() {
           className="rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm"
         >
           <option value="all">All intents</option>
-          {Object.entries(INTENT_LABELS).map(([value, label]) => (
+          {INTENT_FILTER_OPTIONS.map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>

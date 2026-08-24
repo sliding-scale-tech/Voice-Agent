@@ -187,7 +187,7 @@ ${RESIDENT_TRIAGE_BLOCK}`)}
 
       <Section icon={Gauge} title="Lead scoring">
         <p className="-mt-2 text-sm text-muted-foreground">
-          Every call in History gets a 0–10 score, computed deterministically from what the call
+          Every lead call gets a 0–10 score, computed deterministically from what the call
           actually captured — no AI judgment involved, so it's always explainable. Here's exactly
           how it's calculated:
         </p>
@@ -213,7 +213,7 @@ ${RESIDENT_TRIAGE_BLOCK}`)}
 
       <Section icon={AlertTriangle} title="Severity scale">
         <p className="-mt-2 text-sm text-muted-foreground">
-          Every resident call in Tenants gets a 1–10 severity. Unlike lead scoring, this one
+          Every resident call on the Tenants page gets a 1–10 severity. Unlike lead scoring, this one
           is Emily&apos;s judgment during the call — these exact bands are written into her
           instructions from the same source as this list, so the two can never drift apart. You
           can override any score on the Tenants page; the original is kept.

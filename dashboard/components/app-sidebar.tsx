@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Phone,
-  History,
+  UserPlus,
   MessageSquare,
   Building2,
   Menu,
@@ -21,7 +21,7 @@ import { useState } from "react";
 // `hidden` back off to bring it back into the nav with no other changes needed.
 const ALL_LINKS = [
   { href: "/", label: "Call", icon: Phone, hidden: false },
-  { href: "/history", label: "History", icon: History, hidden: false },
+  { href: "/leads", label: "Leads", icon: UserPlus, hidden: false },
   { href: "/tenants", label: "Tenants", icon: Users, hidden: false },
   { href: "/messages", label: "Messages", icon: MessageSquare, hidden: true },
   { href: "/docs", label: "Knowledge", icon: BookOpen, hidden: false },
@@ -32,8 +32,8 @@ const ALL_LINKS = [
 const LINKS = ALL_LINKS.filter((l) => !l.hidden);
 
 // The bottom nav only has room for a handful of items; the rest live in the "More" sheet.
-const BOTTOM_NAV_LINKS = LINKS.filter((l) => ["/", "/history", "/property"].includes(l.href));
-const MORE_LINKS = LINKS.filter((l) => ["/tenants", "/docs", "/settings"].includes(l.href));
+const BOTTOM_NAV_LINKS = LINKS.filter((l) => ["/", "/leads", "/tenants"].includes(l.href));
+const MORE_LINKS = LINKS.filter((l) => ["/property", "/docs", "/settings"].includes(l.href));
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
