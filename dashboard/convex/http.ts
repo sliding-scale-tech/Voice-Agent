@@ -2,6 +2,8 @@ import { httpRouter, type GenericActionCtx } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
+import { normalizePhone } from "./phone";
+import { clampSeverity } from "./severity";
 
 const http = httpRouter();
 
@@ -227,6 +229,115 @@ http.route({
     });
 
     return Response.json({ escalated: true, staff_notified: notified });
+  }),
+});
+
+// --- Resident triage ------------------------------------------------------
+
+/**
+ * Answers "is this number already on the resident roster?" so the agent can greet a known
+ * resident by name instead of interrogating them.
+ *
+ * caller_id is bound to ElevenLabs' system__caller_id dynamic variable and is absent on
+ * browser/WebRTC calls, where there is no telephony leg at all. A miss is a completely normal
+ * result, not an error — this route must never 400 on a missing number, or the agent ends up
+ * apologising to the caller for a failure that didn't happen.
+ */
+http.route({
+  path: "/tools/lookup-tenant",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    const { conversation_id: conversationId, caller_id: callerId } = body;
+
+    if (!conversationId) {
+      return Response.json({ error: "missing conversation_id" }, { status: 400 });
+    }
+
+    const normalized = normalizePhone(callerId);
+    const tenant = normalized
+      ? await ctx.runQuery(internal.tenants.findByPhoneInternal, {
+          phoneNormalized: normalized,
+        })
+      : null;
+
+    return Response.json({
+      is_known_tenant: Boolean(tenant),
+      tenant_name: tenant?.name ?? null,
+      unit: tenant?.unit ?? null,
+      // Always true. Caller ID identifies a phone, not a person — households and roommates
+      // share numbers, so the agent confirms the name out loud either way.
+      needs_verification: true,
+      caller_id_available: Boolean(normalized),
+    });
+  }),
+});
+
+/**
+ * Records that an existing resident called, why, and how bad it is.
+ *
+ * Unlike check_qualification, the severity here is the model's judgment rather than a
+ * deterministic rule — triage has to weigh what the caller describes. clampSeverity is the
+ * guard on that trust, and staff can override the score on the Tenants page with the
+ * original preserved.
+ *
+ * Deliberately sends no SMS: the product decision is to store and surface, and the existing
+ * escalation alert stays commented out rather than gaining a second notification path here.
+ */
+http.route({
+  path: "/tools/log-tenant-issue",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    const {
+      conversation_id: conversationId,
+      caller_id: callerId,
+      caller_name: callerName,
+      unit,
+      caller_phone: callerPhone,
+      reason,
+      category,
+      severity,
+      severity_reason: severityReason,
+    } = body;
+
+    if (!conversationId || !reason) {
+      return Response.json({ error: "missing conversation_id or reason" }, { status: 400 });
+    }
+
+    // Telephony's number beats a spoken one: the caller reciting digits is the lossier path.
+    const phone = callerId?.trim() || callerPhone?.trim() || undefined;
+    const identifiedBy = callerId?.trim() ? ("caller_id" as const) : ("self_reported" as const);
+
+    const tenantId = await ctx.runMutation(internal.tenants.upsertFromCall, {
+      name: callerName,
+      unit,
+      phone,
+      identifiedBy,
+    });
+
+    const clamped = clampSeverity(severity);
+
+    await ctx.runMutation(internal.tenants.logIssue, {
+      elevenLabsConversationId: conversationId,
+      tenantId: tenantId ?? undefined,
+      callerName,
+      unit,
+      callerNumber: phone,
+      reason,
+      category,
+      severity: clamped,
+      severityReason,
+    });
+
+    await ctx.runMutation(internal.conversations.markTenantIssue, {
+      elevenLabsConversationId: conversationId,
+      reason,
+      severity: clamped,
+      callerNumber: phone,
+    });
+
+    return Response.json({ logged: true, severity: clamped });
   }),
 });
 

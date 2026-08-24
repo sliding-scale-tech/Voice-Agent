@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useToast } from "@/components/toast";
 import { RUBRIC } from "@/convex/leadScoring";
-import { Bot, Users, Gauge } from "lucide-react";
+import { RESIDENT_TRIAGE_BLOCK } from "@/convex/agents";
+import { SEVERITY_RUBRIC } from "@/convex/severity";
+import { Bot, Users, Gauge, AlertTriangle } from "lucide-react";
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -102,6 +104,31 @@ export default function SettingsPage() {
           />
         </Field>
 
+        {/* The live prompt lives in the database, not in the code — saveAgent resolves
+            args.prompt ?? existing.prompt, so editing the constant in agents.ts does nothing to
+            an agent that already exists. This button is how the resident-triage instructions
+            actually reach Emily. It appends rather than replaces so hand edits made right here
+            in the textarea aren't silently thrown away. */}
+        {!prompt.includes("RESIDENT CALLS") && (
+          <div className="rounded-lg border border-dashed border-border p-3">
+            <div className="text-sm font-medium">Resident triage is not in this prompt yet</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Adds the severity scale and the rules for handling existing residents. It only
+              appends — if your prompt still tells Emily to escalate every tenant issue, delete
+              that line by hand above, then save.
+            </p>
+            <button
+              type="button"
+              onClick={() => setPrompt(`${prompt.trimEnd()}
+
+${RESIDENT_TRIAGE_BLOCK}`)}
+              className="mt-3 rounded-lg border border-input px-3 py-1.5 text-sm hover:bg-accent"
+            >
+              Insert resident triage instructions
+            </button>
+          </div>
+        )}
+
         <Field label="Voice">
           {voices.length > 0 ? (
             <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className={inputClass}>
@@ -181,6 +208,33 @@ export default function SettingsPage() {
         <p className="text-xs text-muted-foreground">
           A confirmed disqualification (wrong budget or pet policy) caps the score at 4, no
           matter how the rest adds up — an ineligible lead isn't a near-term opportunity.
+        </p>
+      </Section>
+
+      <Section icon={AlertTriangle} title="Severity scale">
+        <p className="-mt-2 text-sm text-muted-foreground">
+          Every resident call in Tenants gets a 1–10 severity. Unlike lead scoring, this one
+          is Emily&apos;s judgment during the call — these exact bands are written into her
+          instructions from the same source as this list, so the two can never drift apart. You
+          can override any score on the Tenants page; the original is kept.
+        </p>
+
+        <div className="space-y-2">
+          {SEVERITY_RUBRIC.map((r) => (
+            <div key={r.band} className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+              <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-primary">
+                {r.band}
+              </span>
+              <div className="min-w-0">
+                <div className="text-sm font-medium">{r.label}</div>
+                <div className="text-xs text-muted-foreground">{r.detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Emily scores the issue, not the caller — a calm person with no heat is a 9, someone
+          furious about a parking space is still a 3. Anything 8 or above is also escalated.
         </p>
       </Section>
     </div>

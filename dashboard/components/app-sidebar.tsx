@@ -12,6 +12,7 @@ import {
   X,
   Settings,
   BookOpen,
+  Users,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -21,6 +22,7 @@ import { useState } from "react";
 const ALL_LINKS = [
   { href: "/", label: "Call", icon: Phone, hidden: false },
   { href: "/history", label: "History", icon: History, hidden: false },
+  { href: "/tenants", label: "Tenants", icon: Users, hidden: false },
   { href: "/messages", label: "Messages", icon: MessageSquare, hidden: true },
   { href: "/docs", label: "Knowledge", icon: BookOpen, hidden: false },
   { href: "/property", label: "Property", icon: Building2, hidden: false },
@@ -31,7 +33,7 @@ const LINKS = ALL_LINKS.filter((l) => !l.hidden);
 
 // The bottom nav only has room for a handful of items; the rest live in the "More" sheet.
 const BOTTOM_NAV_LINKS = LINKS.filter((l) => ["/", "/history", "/property"].includes(l.href));
-const MORE_LINKS = LINKS.filter((l) => ["/docs", "/settings"].includes(l.href));
+const MORE_LINKS = LINKS.filter((l) => ["/tenants", "/docs", "/settings"].includes(l.href));
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();

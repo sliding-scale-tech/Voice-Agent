@@ -202,6 +202,64 @@ export const markEscalation = internalMutation({
 });
 
 /**
+ * Called by the log_tenant_issue server tool. Same placeholder-row shape as markEscalation
+ * above, with one deliberate difference: the intent is only claimed if nothing has claimed it
+ * yet. On a severity-8+ call the agent calls this and then escalate, and escalate patching
+ * unconditionally afterwards is what makes the escalation win — the same precedence
+ * ingestFromWebhook already respects when it defers to a mid-call classification.
+ *
+ * This is the first code in the codebase to write intent: "maintenance", which has been
+ * declared in the schema and rendered by the History page since the beginning without ever
+ * being set.
+ *
+ * Known trade-off: claiming the intent here means ingestFromWebhook will skip its own
+ * classification, so the call keeps this template summary rather than ElevenLabs' richer
+ * transcript summary. Escalations already behave exactly this way.
+ */
+export const markTenantIssue = internalMutation({
+  args: {
+    elevenLabsConversationId: v.string(),
+    reason: v.string(),
+    severity: v.number(),
+    callerNumber: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("conversations")
+      .withIndex("by_elevenlabs_conversation_id", (q) =>
+        q.eq("elevenLabsConversationId", args.elevenLabsConversationId),
+      )
+      .first();
+
+    const classification = {
+      intent: "maintenance" as const,
+      outcome: "logged_only" as const,
+      summary: `Tenant issue (severity ${args.severity}): ${args.reason}`.slice(0, 300),
+    };
+
+    if (existing) {
+      const patch: Record<string, unknown> = {};
+      if (!existing.intent) Object.assign(patch, classification);
+      if (args.callerNumber && !existing.callerNumber) patch.callerNumber = args.callerNumber;
+      if (Object.keys(patch).length > 0) await ctx.db.patch(existing._id, patch);
+      return;
+    }
+
+    const agent = await ctx.db.query("agents").first();
+    if (!agent) return;
+    await ctx.db.insert("conversations", {
+      agentId: agent._id,
+      elevenLabsConversationId: args.elevenLabsConversationId,
+      channel: "phone",
+      callerNumber: args.callerNumber,
+      startedAt: Date.now(),
+      status: "active",
+      ...classification,
+    });
+  },
+});
+
+/**
  * The post-call webhook payload shape is not confirmed against real docs (ElevenLabs' pages
  * 404'd throughout this build) — field access here is defensive with fallbacks, and gets
  * corrected against the first real webhook delivery once configured.
@@ -312,6 +370,20 @@ export const ingestFromWebhook = internalMutation({
           callerPhone: callerNumber,
         });
       }
+    }
+
+    // Same idea for a resident issue logged mid-call. The back-fill matters more here than it
+    // does for leads: the caller's number is the roster's only match key, so a browser call or
+    // a call where caller ID was unavailable would otherwise never be recognised again.
+    const tenantIssue = await ctx.runQuery(internal.tenants.issueByElevenLabsId, {
+      elevenLabsConversationId: conversationId,
+    });
+    if (tenantIssue) {
+      await ctx.runMutation(internal.tenants.linkConversation, {
+        elevenLabsConversationId: conversationId,
+        conversationId: conv._id,
+        callerNumber,
+      });
     }
 
     // Only set intent/outcome/summary if a tool call during the call didn't already set them

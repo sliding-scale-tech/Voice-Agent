@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import * as el from "./elevenLabsApi";
+import { SEVERITY_RUBRIC } from "./severity";
 
 // Jessica — premade, American, female, "conversational" use case. Premade rather than a
 // professional clone on purpose: a PVC run at the wrong similarity_boost is what made the
@@ -61,6 +62,30 @@ const TURN_TUNING: el.TurnTuning = {
   ],
 };
 
+/**
+ * The resident-triage instructions, exported so the Settings page can append them to a prompt
+ * that has already been hand-edited. The severity bands are generated from SEVERITY_RUBRIC so
+ * the agent and the Tenants page can never disagree about what a 7 means.
+ *
+ * The first line matters: a customized prompt in the database may still carry the old
+ * "escalate every existing tenant issue" instruction, and this block has to win.
+ */
+export const RESIDENT_TRIAGE_BLOCK = `RESIDENT CALLS:
+This section supersedes any earlier instruction to escalate resident issues directly.
+
+Once you know you're talking to a current resident, don't run the leasing questions. Get
+three things: their name, their unit, and one plain sentence on what's wrong. Then call
+log_tenant_issue with a severity from 1 to 10:
+${SEVERITY_RUBRIC.map((r) => `${r.band} ${r.label} — ${r.detail}`).join("\n")}
+
+Score the issue, never the caller. A calm person with no heat is a 9; someone furious about a
+parking space is still a 3. If two things are wrong, score the worse one. If you're between
+two bands, take the lower one. Never say the number out loud — it's for staff, not the caller.
+
+If severity is 8 or higher, call log_tenant_issue first, then escalate, then tell them someone
+will call them back shortly. Below 8, tell them it's logged and someone will follow up, then
+close the call. Never try to troubleshoot a repair yourself.`;
+
 const LEASING_PROMPT = `You are Emily, the leasing receptionist for Maple Court Apartments, answering by phone or
 voice chat, 24/7. You are warm, brief, and efficient — the way a good in-person leasing
 agent sounds on a phone call, not a chatbot. Introduce yourself by name only in your first
@@ -77,6 +102,12 @@ YOUR JOB, IN ORDER:
    point — even before you've gathered anything else — call check_availability and answer
    from that. It never captures a lead or decides qualification, it's just a lookup.
 1. Figure out why they're calling.
+1a. Existing resident or prospect? If they say or imply they already live here — "my
+   apartment," "my unit," "the heat's out" — call lookup_tenant right away. If it comes back
+   is_known_tenant true, greet them by name and confirm the unit ("Hi Dana — this is about
+   4B?"). If false, or if you couldn't tell, just ask: "Are you a current resident with us?"
+   If yes, get their name and unit before anything else, then follow the RESIDENT CALLS
+   section below instead of the leasing steps.
 2. If it's a leasing inquiry, gather exactly five things — no more, no fewer — before
    deciding anything: unit type/bedroom count wanted, move-in timeline, budget range,
    whether they have pets (and what kind, if yes), and their name plus a callback number.
@@ -116,12 +147,12 @@ make that call on your own judgment.
 WHEN TO ESCALATE — call the escalate tool, don't try to handle it yourself:
 - They ask to speak to a human, and you haven't already tried once to help — the second
   time they ask, escalate immediately, no more attempts.
-- They are an existing tenant with anything urgent: no heat, flooding, no water, a lockout,
-  anything safety-related. Escalate right away, don't troubleshoot it.
-- Anything that isn't a leasing inquiry — maintenance requests, billing questions, "what's
-  the WiFi speed in unit 4B," anything outside these two topics — say you'll have someone
-  follow up, then escalate with a short note of what they asked. Never invent an answer to
-  something you don't actually know.
+- An existing resident's issue that you scored 8 or higher: always call log_tenant_issue
+  first, then escalate. Below 8, log it and close the call — don't escalate routine repairs.
+- Anything that is neither a leasing inquiry nor a resident issue — "what's the WiFi speed in
+  unit 4B," anything outside those two topics — say you'll have someone follow up, then
+  escalate with a short note of what they asked. Never invent an answer to something you
+  don't actually know.
 - If 90 seconds have passed and you still can't tell why they're calling, escalate — don't
   keep guessing.
 - If someone has a heavy accent or a bad connection and you've asked them to repeat
@@ -133,6 +164,8 @@ area or which unit this is about — ask for these directly ("Can I get your nam
 number to reach you, and which unit or area this is about?") rather than skipping it. Once
 you've escalated, tell them plainly that someone will be in touch with them soon, then move
 to closing the call.
+
+${RESIDENT_TRIAGE_BLOCK}
 
 WHEN THERE'S NO MATCH:
 If nothing available matches what they asked for (wrong bedroom count, wrong timeframe),
@@ -257,10 +290,69 @@ const TOOL_DEFS = (siteUrl: string): el.ToolDefinition[] => [
       },
     },
   },
+  {
+    name: "lookup_tenant",
+    description:
+      "Checks whether the number this call is coming from belongs to someone already on the " +
+      "resident roster. Call this once, early, as soon as the caller says or implies they " +
+      "already live here — before asking them to identify themselves. Returns whether they " +
+      "are a known resident and, if so, their name and unit, so you can confirm it rather " +
+      "than ask from scratch.",
+    url: `${siteUrl}/tools/lookup-tenant`,
+    // caller_id is deliberately NOT required: browser calls have no telephony leg and the
+    // variable arrives empty, and a required-but-missing property makes ElevenLabs drop the
+    // tool call entirely. A miss is a normal answer here.
+    required: ["conversation_id"],
+    properties: {
+      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
+      caller_id: { type: "string", dynamicVariable: "system__caller_id" },
+    },
+  },
+  {
+    name: "log_tenant_issue",
+    description:
+      "Records that an existing resident called, why they called, and how severe it is on a " +
+      "1-10 scale. Call this for every confirmed resident before you close the call, even for " +
+      "small things. Do not call it for people looking to rent — that is check_qualification. " +
+      "If the severity is 8 or higher, call escalate as well.",
+    url: `${siteUrl}/tools/log-tenant-issue`,
+    required: ["conversation_id", "reason", "severity", "caller_name"],
+    properties: {
+      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
+      caller_id: { type: "string", dynamicVariable: "system__caller_id" },
+      caller_name: { type: "string", description: "The resident's full name as they gave it." },
+      unit: { type: "string", description: "Their unit or apartment number, e.g. '4B'." },
+      caller_phone: {
+        type: "string",
+        description: "A callback number, only if they spoke one aloud.",
+      },
+      reason: {
+        type: "string",
+        description:
+          "One plain sentence: why they called, in their words. E.g. 'No hot water in the " +
+          "shower since last night.'",
+      },
+      category: {
+        type: "string",
+        description: "One of: maintenance, billing, noise, lockout, lease, other.",
+      },
+      severity: {
+        type: "number",
+        description:
+          "1-10 using the severity scale in your instructions. Judge the issue itself, never " +
+          "how upset the caller sounds.",
+      },
+      severity_reason: {
+        type: "string",
+        description:
+          "A few words on why that number, e.g. 'no hot water, unlivable but not dangerous'.",
+      },
+    },
+  },
 ];
 
 /**
- * Idempotently creates the three server tools this agent needs, checking for existing tools
+ * Idempotently creates the server tools this agent needs, checking for existing tools
  * by name first so re-running (e.g. after a deploy) doesn't create duplicates.
  */
 export const ensureTools = internalAction({

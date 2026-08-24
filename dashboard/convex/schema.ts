@@ -142,4 +142,62 @@ export default defineSchema({
     tourConfirmed: v.boolean(),
     updatedAt: v.number(),
   }).index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"]),
+
+  // The resident roster. Nothing writes source: "manual" yet — the roster builds itself from
+  // calls, and every auto-created row lands as "unverified" for a human to confirm or reject
+  // on the Tenants page. "rejected" is a real state rather than a delete: without it, the next
+  // call from that number would silently re-create the row that was just dismissed.
+  tenants: defineTable({
+    name: v.string(),
+    unit: v.optional(v.string()),
+    phone: v.optional(v.string()), // as observed: E.164 from caller ID, or as spoken
+    phoneNormalized: v.optional(v.string()), // normalizePhone(phone) — the only match key
+    status: v.union(
+      v.literal("unverified"),
+      v.literal("confirmed"),
+      v.literal("rejected"),
+    ),
+    source: v.union(v.literal("call"), v.literal("manual")),
+    identifiedBy: v.optional(
+      v.union(v.literal("caller_id"), v.literal("self_reported")),
+    ),
+    firstSeenAt: v.number(),
+    lastContactAt: v.number(),
+    notes: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_phone_normalized", ["phoneNormalized"])
+    .index("by_status", ["status"])
+    .index("by_last_contact", ["lastContactAt"]),
+
+  // Keyed by the ElevenLabs conversation id for the same reason as qualifications above.
+  //
+  // `category` is deliberately v.string() and not a union: the agent fills it freehand, and a
+  // single off-script value ("plumbing" instead of "maintenance") against a union would throw
+  // inside the mutation, fail the tool call, and leave Emily telling the caller that something
+  // broke mid-call. Normalize for display, store what was said.
+  tenantIssues: defineTable({
+    elevenLabsConversationId: v.string(),
+    conversationId: v.optional(v.id("conversations")),
+    tenantId: v.optional(v.id("tenants")),
+
+    callerName: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    callerNumber: v.optional(v.string()),
+    callerNumberNormalized: v.optional(v.string()),
+
+    reason: v.string(),
+    category: v.optional(v.string()),
+    severity: v.number(), // 1-10, clamped server-side by clampSeverity
+    severityReason: v.optional(v.string()),
+    // Set the first time staff overrides the score, so the agent's original call is never lost.
+    originalSeverity: v.optional(v.number()),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"])
+    .index("by_tenant", ["tenantId"])
+    .index("by_created", ["createdAt"]),
 });
