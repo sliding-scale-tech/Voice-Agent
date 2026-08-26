@@ -7,7 +7,8 @@ import { useToast } from "@/components/toast";
 import { RUBRIC } from "@/convex/leadScoring";
 import { RESIDENT_TRIAGE_BLOCK } from "@/convex/residentTriage";
 import { SEVERITY_RUBRIC } from "@/convex/severity";
-import { Bot, Users, Gauge, AlertTriangle } from "lucide-react";
+import { WA_DEFAULT_PROMPT } from "@/convex/waPrompt";
+import { Bot, Users, Gauge, AlertTriangle, MessageCircle } from "lucide-react";
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -20,6 +21,26 @@ export default function SettingsPage() {
   const [staffPhoneNumber, setStaffPhoneNumber] = useState("");
   const [staffHydrated, setStaffHydrated] = useState(false);
   const [staffStatus, setStaffStatus] = useState<"idle" | "saving">("idle");
+
+  // WhatsApp keeps its own prompt. The two channels genuinely need different instructions --
+  // the voice prompt names tools that do not exist on WhatsApp, and the WhatsApp prompt tells
+  // the model to fill JSON fields, which would make Emily read JSON aloud on a call.
+  const waConfig = useQuery(api.whatsapp.config);
+  const saveWaConfig = useMutation(api.whatsapp.saveConfig);
+  const [waStatus, setWaStatus] = useState<"idle" | "saving">("idle");
+
+  // Derived rather than mirrored into an effect: waDraft is null until the user actually
+  // types, and the saved value shows through until then. That keeps the textarea in sync with
+  // the database without the hydrate-once effect this file uses elsewhere, which React now
+  // warns about because it causes a second render on every load.
+  const [waDraft, setWaDraft] = useState<string | null>(null);
+  const waLoading = waConfig === undefined;
+  // A blank stored prompt means "use the default" - that is how waBot reads it too
+  // (`config?.systemPrompt?.trim() || WA_DEFAULT_PROMPT`). Using ?? here instead of this
+  // check would treat an empty string as a real value and show an empty box for a bot that
+  // is actually running the default.
+  const waSaved = waConfig?.systemPrompt?.trim() ? waConfig.systemPrompt : null;
+  const waPrompt = waDraft ?? waSaved ?? WA_DEFAULT_PROMPT;
 
   useEffect(() => {
     if (!orgSettings || staffHydrated) return;
@@ -209,6 +230,84 @@ ${RESIDENT_TRIAGE_BLOCK}`)}
           A confirmed disqualification (wrong budget or pet policy) caps the score at 4, no
           matter how the rest adds up — an ineligible lead isn't a near-term opportunity.
         </p>
+      </Section>
+
+      <Section icon={MessageCircle} title="WhatsApp prompt">
+        <p className="-mt-2 text-sm text-muted-foreground">
+          Emily&apos;s instructions when she is texting on WhatsApp. Separate from the voice
+          prompt above on purpose: that one tells her to call tools like{" "}
+          <code className="font-mono text-xs">check_qualification</code> and end the call, none
+          of which exist in a chat, and this one tells her to fill in structured fields, which
+          she would otherwise read out loud on a phone call.
+        </p>
+
+        <Field
+          label="System prompt"
+          hint="Keep the {{...}} placeholders. They are filled in automatically on every message."
+        >
+          <textarea
+            value={waLoading ? "" : waPrompt}
+            onChange={(e) => setWaDraft(e.target.value)}
+            disabled={waLoading}
+            rows={12}
+            className={`${inputClass} resize-y font-mono text-xs`}
+          />
+        </Field>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-3">
+          <div className="text-xs font-medium">Filled in automatically, do not delete</div>
+          <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+            <li>
+              <code className="font-mono">{"{{PROPERTY}}"}</code> — units, rent and availability,
+              live from the Property page
+            </li>
+            <li>
+              <code className="font-mono">{"{{DOCS}}"}</code> — every synced Knowledge document
+            </li>
+            <li>
+              <code className="font-mono">{"{{SEVERITY_RUBRIC}}"}</code> — the 1&ndash;10 bands
+              shown below
+            </li>
+            <li>
+              <code className="font-mono">{"{{PROPERTY_NAME}}"}</code> — the property name
+            </li>
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            You never need to type rent or policies in here. Change them on the Property and
+            Knowledge pages and both channels pick it up.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={async () => {
+              setWaStatus("saving");
+              await saveWaConfig({ systemPrompt: waPrompt });
+              // Drop the draft so the field follows the saved value again.
+              setWaDraft(null);
+              setWaStatus("idle");
+              toast("WhatsApp prompt saved");
+            }}
+            disabled={waLoading || waStatus === "saving" || !waPrompt.trim()}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {waStatus === "saving" ? "Saving…" : "Save WhatsApp prompt"}
+          </button>
+
+          {waPrompt !== WA_DEFAULT_PROMPT && (
+            <button
+              type="button"
+              onClick={() => setWaDraft(WA_DEFAULT_PROMPT)}
+              className="rounded-lg border border-input px-4 py-2 text-sm hover:bg-accent"
+            >
+              Restore default
+            </button>
+          )}
+
+          <span className="text-xs text-muted-foreground">
+            Applies to the next message — no redeploy, no reconnecting WhatsApp.
+          </span>
+        </div>
       </Section>
 
       <Section icon={AlertTriangle} title="Severity scale">

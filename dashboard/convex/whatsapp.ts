@@ -1,5 +1,11 @@
 import { v } from "convex/values";
-import { action, internalMutation, mutation, query } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import * as waha from "./wahaApi";
 import { clampSeverity } from "./severity";
@@ -69,6 +75,29 @@ export const stats = query({
       openIssues: issueRows.filter((i) => i.status === "open").length,
       qualifiedLeads: leadRows.filter((l) => l.qualifies === true).length,
     };
+  },
+});
+
+// --- Prompt configuration -------------------------------------------------
+
+/** The editable WhatsApp prompt. Null until someone saves one; the bot falls back to the default. */
+export const config = query({
+  args: {},
+  handler: (ctx) => ctx.db.query("waConfig").first(),
+});
+
+export const configInternal = internalQuery({
+  args: {},
+  handler: (ctx) => ctx.db.query("waConfig").first(),
+});
+
+export const saveConfig = mutation({
+  args: { systemPrompt: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("waConfig").first();
+    const row = { systemPrompt: args.systemPrompt, updatedAt: Date.now() };
+    if (existing) await ctx.db.patch(existing._id, row);
+    else await ctx.db.insert("waConfig", row);
   },
 });
 

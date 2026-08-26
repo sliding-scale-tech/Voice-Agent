@@ -186,6 +186,15 @@ export default defineSchema({
   // The only things shared are read-only business data both channels need: the `docs`
   // knowledge base and the `properties` row.
 
+  // Singleton — the editable WhatsApp system prompt. Kept in its own table rather than in
+  // orgSettings so the WhatsApp feature stays a self-contained island: nothing outside these
+  // wa* tables has to know it exists. Empty/missing means "use the default from
+  // convex/waPrompt.ts", so a fresh install works before anyone visits Settings.
+  waConfig: defineTable({
+    systemPrompt: v.string(),
+    updatedAt: v.number(),
+  }),
+
   // Singleton — one connected WhatsApp number for the property. Mirrors WAHA's own session
   // state rather than owning it: WAHA is the source of truth, this is the last thing we saw
   // so the page can render without a round trip on every load.
