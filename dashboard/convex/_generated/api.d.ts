@@ -29,6 +29,7 @@ import type * as tenants from "../tenants.js";
 import type * as threads from "../threads.js";
 import type * as twilioApi from "../twilioApi.js";
 import type * as waBot from "../waBot.js";
+import type * as waPrompt from "../waPrompt.js";
 import type * as wahaApi from "../wahaApi.js";
 import type * as whatsapp from "../whatsapp.js";
 
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   threads: typeof threads;
   twilioApi: typeof twilioApi;
   waBot: typeof waBot;
+  waPrompt: typeof waPrompt;
   wahaApi: typeof wahaApi;
   whatsapp: typeof whatsapp;
 }>;
