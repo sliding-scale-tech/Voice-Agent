@@ -3,6 +3,8 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { clampSeverity } from "./severity";
+import { evaluateQualification } from "./qualifyRules";
+import * as waha from "./wahaApi";
 import { realPhone } from "./sanitize";
 
 const http = httpRouter();
@@ -70,21 +72,15 @@ http.route({
     }
 
     const property = await ctx.runQuery(internal.properties.currentInternal, {});
-    const unit = property.units.find((u: { bedrooms: string }) => u.bedrooms === bedrooms);
 
-    let qualifies = true;
-    let disqualifyReason: string | undefined;
-
-    if (!unit || !unit.available) {
-      qualifies = false;
-      disqualifyReason = `No available ${bedrooms} units right now.`;
-    } else if (typeof budget === "number" && budget < unit.rentMin) {
-      qualifies = false;
-      disqualifyReason = `Rent for a ${bedrooms} starts at $${unit.rentMin}, above the stated budget.`;
-    } else if (petsWanted === true && !property.petsAllowed) {
-      qualifies = false;
-      disqualifyReason = `${property.name} does not allow pets.`;
-    }
+    // Shared with the WhatsApp bot on purpose — see convex/qualifyRules.ts. Two copies of
+    // this decision would let the same person be told "yes" on one channel and "no" on the
+    // other.
+    const { qualifies, disqualifyReason } = evaluateQualification(property, {
+      bedrooms,
+      budget: typeof budget === "number" ? budget : undefined,
+      petsWanted: typeof petsWanted === "boolean" ? petsWanted : undefined,
+    });
 
     await ctx.runMutation(internal.qualifications.upsertByConversationId, {
       elevenLabsConversationId: conversationId,
@@ -296,6 +292,79 @@ http.route({
     });
 
     return Response.json({ logged: true, severity: clamped });
+  }),
+});
+
+// --- WhatsApp (WAHA) ------------------------------------------------------
+
+/**
+ * Inbound WhatsApp messages from self-hosted WAHA.
+ *
+ * WAHA is configured to send our own WAHA_API_KEY back as X-Api-Key (see wahaApi.startSession).
+ * Without that check anyone who knows this deployment's URL could inject fake WhatsApp
+ * messages into the inbox, and the bot would answer them.
+ *
+ * The payload is parsed defensively: WAHA's engines (GOWS/WEBJS/NOWEB) do not agree on
+ * shape, so an unrecognised body is logged in full rather than dropped silently. See
+ * infra/waha/README.md.
+ */
+http.route({
+  path: "/wa/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const expected = process.env.WAHA_API_KEY;
+    if (!expected || request.headers.get("x-api-key") !== expected) {
+      return new Response("unauthorized", { status: 401 });
+    }
+
+    const raw = await request.text();
+
+    let payload: {
+      event?: string;
+      session?: string;
+      payload?: { from?: string; body?: string; fromMe?: boolean };
+    };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      console.error("[wa webhook] invalid JSON:", raw.slice(0, 500));
+      return new Response("bad request", { status: 400 });
+    }
+
+    // Our own outgoing messages echo back through the webhook. Without this the bot
+    // replies to itself, forever.
+    if (payload.event !== "message" || payload.payload?.fromMe) {
+      return new Response(null, { status: 200 });
+    }
+
+    const from = payload.payload?.from;
+    const text = payload.payload?.body;
+    if (!from || !text) {
+      console.error(
+        `[wa webhook] unrecognized payload shape: ${JSON.stringify(payload).slice(0, 1000)}`,
+      );
+      return new Response(null, { status: 200 });
+    }
+
+    // WhatsApp is moving to LID identifiers, so `from` can be "123@lid" rather than a phone
+    // number. Resolve it when we can. When we cannot, keep the FULL JID as the chat id — a
+    // bare LID with "@c.us" appended is undeliverable, so replies would vanish silently.
+    let chatId = from.replace(/@.*/, "");
+    let displayName = `+${chatId}`;
+    if (from.endsWith("@lid")) {
+      const resolved = await waha.resolveLid(from);
+      if (resolved) {
+        chatId = resolved;
+        displayName = `+${resolved}`;
+      } else {
+        chatId = from;
+        displayName = from;
+      }
+    }
+
+    await ctx.runMutation(internal.waBot.ingestInbound, { chatId, displayName, text });
+
+    return new Response(null, { status: 200 });
   }),
 });
 
