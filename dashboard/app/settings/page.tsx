@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useToast } from "@/components/toast";
 import { RUBRIC } from "@/convex/leadScoring";
-import { RESIDENT_TRIAGE_BLOCK } from "@/convex/agents";
+import { RESIDENT_TRIAGE_BLOCK } from "@/convex/residentTriage";
 import { SEVERITY_RUBRIC } from "@/convex/severity";
 import { Bot, Users, Gauge, AlertTriangle } from "lucide-react";
 

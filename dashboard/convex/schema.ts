@@ -175,4 +175,87 @@ export default defineSchema({
   })
     .index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"])
     .index("by_created", ["createdAt"]),
+
+  // --- WhatsApp automation ------------------------------------------------
+  //
+  // Deliberately a self-contained island. Nothing here references conversations,
+  // qualifications, tenantIssues, threads or smsMessages, and nothing there references this.
+  // The voice agent (ElevenLabs) and the SMS bot (Twilio) keep working exactly as they did
+  // even if WhatsApp is switched off entirely.
+  //
+  // The only things shared are read-only business data both channels need: the `docs`
+  // knowledge base and the `properties` row.
+
+  // Singleton — one connected WhatsApp number for the property. Mirrors WAHA's own session
+  // state rather than owning it: WAHA is the source of truth, this is the last thing we saw
+  // so the page can render without a round trip on every load.
+  waSession: defineTable({
+    sessionName: v.string(),
+    status: v.string(), // raw WAHA status: STARTING | SCAN_QR_CODE | WORKING | FAILED | STOPPED
+    phoneNumber: v.optional(v.string()),
+    connectedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }),
+
+  // One thread per WhatsApp chat.
+  //
+  // chatId is bare phone digits, OR a full JID like "123@lid" when WhatsApp gave us a LID
+  // identifier we could not resolve to a real number. Storing the full JID in that case is
+  // deliberate: a bare LID with "@c.us" appended is undeliverable, so replies would silently
+  // vanish. See infra/waha/README.md.
+  waThreads: defineTable({
+    chatId: v.string(),
+    displayName: v.string(),
+    status: v.union(v.literal("bot"), v.literal("escalated"), v.literal("closed")),
+    escalationReason: v.optional(v.string()),
+    unreadCount: v.number(),
+    lastMessageAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_chat_id", ["chatId"])
+    .index("by_last_message", ["lastMessageAt"]),
+
+  waMessages: defineTable({
+    threadId: v.id("waThreads"),
+    sender: v.union(v.literal("customer"), v.literal("bot"), v.literal("staff")),
+    text: v.string(),
+    at: v.number(),
+    deliveryStatus: v.optional(v.union(v.literal("sent"), v.literal("failed"))),
+  }).index("by_thread", ["threadId"]),
+
+  // What the bot captured from a leasing conversation. Same five fields the voice agent
+  // gathers, but stored separately and shown only on the WhatsApp page.
+  waLeads: defineTable({
+    threadId: v.id("waThreads"),
+    callerName: v.optional(v.string()),
+    callerPhone: v.optional(v.string()),
+    bedrooms: v.optional(v.string()),
+    moveInDate: v.optional(v.string()),
+    budget: v.optional(v.number()),
+    petsWanted: v.optional(v.boolean()),
+    petType: v.optional(v.string()),
+    qualifies: v.optional(v.boolean()),
+    disqualifyReason: v.optional(v.string()),
+    tourSlot: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_thread", ["threadId"]),
+
+  // Resident maintenance reported over WhatsApp. Same 1-10 severity rubric the voice agent
+  // uses (convex/severity.ts) so a 7 means the same thing on both channels.
+  waIssues: defineTable({
+    threadId: v.id("waThreads"),
+    callerName: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    callbackNumber: v.optional(v.string()),
+    reason: v.string(),
+    category: v.optional(v.string()),
+    severity: v.number(),
+    severityReason: v.optional(v.string()),
+    originalSeverity: v.optional(v.number()),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_thread", ["threadId"])
+    .index("by_created", ["createdAt"]),
 });

@@ -20,12 +20,17 @@ import type * as orgSettings from "../orgSettings.js";
 import type * as otlp from "../otlp.js";
 import type * as properties from "../properties.js";
 import type * as qualifications from "../qualifications.js";
+import type * as qualifyRules from "../qualifyRules.js";
+import type * as residentTriage from "../residentTriage.js";
 import type * as sanitize from "../sanitize.js";
 import type * as severity from "../severity.js";
 import type * as smsBot from "../smsBot.js";
 import type * as tenants from "../tenants.js";
 import type * as threads from "../threads.js";
 import type * as twilioApi from "../twilioApi.js";
+import type * as waBot from "../waBot.js";
+import type * as wahaApi from "../wahaApi.js";
+import type * as whatsapp from "../whatsapp.js";
 
 import type {
   ApiFromModules,
@@ -46,12 +51,17 @@ declare const fullApi: ApiFromModules<{
   otlp: typeof otlp;
   properties: typeof properties;
   qualifications: typeof qualifications;
+  qualifyRules: typeof qualifyRules;
+  residentTriage: typeof residentTriage;
   sanitize: typeof sanitize;
   severity: typeof severity;
   smsBot: typeof smsBot;
   tenants: typeof tenants;
   threads: typeof threads;
   twilioApi: typeof twilioApi;
+  waBot: typeof waBot;
+  wahaApi: typeof wahaApi;
+  whatsapp: typeof whatsapp;
 }>;
 
 /**
