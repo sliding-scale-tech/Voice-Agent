@@ -49,7 +49,7 @@ const THREAD_BADGE: Record<string, string> = {
 };
 
 const THREAD_LABEL: Record<string, string> = {
-  bot: "Emily",
+  bot: "Sara",
   escalated: "Needs you",
   closed: "Closed",
 };
@@ -147,7 +147,7 @@ export default function WhatsAppPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">WhatsApp</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Emily answers WhatsApp on its own number, captures leases and maintenance issues, and
+          Sara answers WhatsApp on its own number, captures leases and maintenance issues, and
           hands over to you when it can&apos;t help. Completely separate from calls and SMS.
         </p>
       </div>
@@ -338,7 +338,7 @@ type ThreadRow = NonNullable<ReturnType<typeof useQuery<typeof api.whatsapp.thre
 
 const FILTERS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All" },
-  { value: "bot", label: "Emily" },
+  { value: "bot", label: "Sara" },
   { value: "escalated", label: "Needs you" },
   { value: "closed", label: "Closed" },
 ];
@@ -618,7 +618,7 @@ function ChatPane({ thread, onBack }: { thread: ThreadRow; onBack: () => void })
                 className="flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-xs hover:bg-accent"
               >
                 <Undo2 className="h-3.5 w-3.5" />
-                Back to Emily
+                Back to Sara
               </button>
             ))}
           {isClosed ? (
@@ -646,7 +646,7 @@ function ChatPane({ thread, onBack }: { thread: ThreadRow; onBack: () => void })
       {thread.status === "escalated" && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-xs text-warning-foreground">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          Emily has stopped replying on this chat. Your messages go out as staff.
+          Sara has stopped replying on this chat. Your messages go out as staff.
         </div>
       )}
 
@@ -671,7 +671,7 @@ function ChatPane({ thread, onBack }: { thread: ThreadRow; onBack: () => void })
               {m.sender !== "customer" && (
                 <>
                   {m.sender === "bot" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                  {m.sender === "bot" ? "Emily" : "You"}
+                  {m.sender === "bot" ? "Sara" : "You"}
                 </>
               )}
               <span>{formatRelative(m.at)}</span>
@@ -704,7 +704,7 @@ function ChatPane({ thread, onBack }: { thread: ThreadRow; onBack: () => void })
             placeholder={
               thread.status === "escalated"
                 ? "Reply to customer..."
-                : "Reply - this takes over from Emily..."
+                : "Reply - this takes over from Sara..."
             }
             disabled={sending}
             className="max-h-28 min-h-[52px] w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import * as gemini from "./geminiApi";
 
-const SMS_SYSTEM_PROMPT = `You are Emily, the leasing assistant for the property, texting with a prospective or
+const SMS_SYSTEM_PROMPT = `You are Sara, the leasing assistant for the property, texting with a prospective or
 current tenant. You answer only from the property information given below —
 never guess or invent anything not in it. Keep replies short, plain, and friendly, the way a
 real person texts (no markdown, no bullet points).

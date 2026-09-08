@@ -121,21 +121,21 @@ export default function LeadsPage() {
   return (
     <div className="space-y-7 pb-10">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">History</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Every call, with its full transcript.</p>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Leads</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Every Lead, with its full transcript.</p>
       </header>
 
       {usage ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <StatCard
             icon={PhoneCall}
-            label="Calls this month"
+            label="Leads this month"
             value={String(usage.callCount)}
             accent="blue"
           />
           <StatCard
             icon={Clock3}
-            label="Avg call duration"
+            label="Avg lead duration"
             value={formatDuration(usage.avgDurationSec)}
             accent="violet"
           />
@@ -319,7 +319,7 @@ function FunnelChart({
           <p className="text-3xl font-semibold tabular-nums">
             {String(funnel.callsAnswered).padStart(2, "0")}
           </p>
-          <p className="mt-2 text-xs text-muted-foreground">Calls answered</p>
+          <p className="mt-2 text-xs text-muted-foreground">Leads</p>
         </div>
         <FunnelStep
           value={funnel.leadsQualified}

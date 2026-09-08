@@ -26,7 +26,7 @@ import { useState } from "react";
 // `hidden` back off to bring any of them back into the nav with no other changes needed.
 const ALL_LINKS = [
   { href: "/call", label: "Call", icon: Phone, hidden: false },
-  { href: "/leads", label: "History", icon: History, hidden: false },
+  { href: "/leads", label: "Leads", icon: History, hidden: false },
   { href: "/tenants", label: "Tenants", icon: Users, hidden: false },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle, hidden: true },
   { href: "/messages", label: "Messages", icon: MessageSquare, hidden: true },
@@ -167,10 +167,10 @@ function Brand({
   const inner = (
     <>
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">
-        E
+        S
       </div>
       <div className="min-w-0 flex-1 leading-tight">
-        <div className="text-sm font-semibold text-sidebar-foreground">Emily</div>
+        <div className="text-sm font-semibold text-sidebar-foreground">Sara</div>
         <div className="text-[11px] text-sidebar-foreground/50">Leasing Assistant</div>
       </div>
       {onAccountClick ? (

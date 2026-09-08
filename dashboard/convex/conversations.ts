@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { isOtlpPayload, parseOtlp } from "./otlp";
 import { computeLeadScore } from "./leadScoring";
 import { currentUser } from "./authz";
@@ -33,21 +34,45 @@ function isResidentCall(
   );
 }
 
+/**
+ * A leasing lead: someone actually inquiring about an apartment. Resident/maintenance calls
+ * and "I'm not looking for an apartment" (or otherwise unclassified) calls are not leads —
+ * they must not appear in the Leads list or its top-line stats.
+ */
+function isLeasingLead(
+  conversation: {
+    _id: Id<"conversations">;
+    elevenLabsConversationId?: string;
+    intent?: string;
+  },
+  residentCallIds: Set<string>,
+  qualificationConversationIds: Set<Id<"conversations">>,
+  qualificationElevenLabsIds: Set<string>,
+): boolean {
+  if (isResidentCall(conversation, residentCallIds)) return false;
+  if (conversation.intent === "leasing") return true;
+  if (qualificationConversationIds.has(conversation._id)) return true;
+  return Boolean(
+    conversation.elevenLabsConversationId &&
+      qualificationElevenLabsIds.has(conversation.elevenLabsConversationId),
+  );
+}
+
 // --- Reads ----------------------------------------------------------------
 
 /**
- * The lead log. Resident calls are deliberately excluded — they belong on the Tenants page,
- * and a maintenance request is not a lead.
+ * The lead log. Only leasing inquiries belong here — resident/maintenance calls go on the
+ * Tenants page, and a caller who is not looking for an apartment is not a lead.
  *
- * Membership is decided by whether a tenantIssue exists for the conversation rather than by
- * intent, because a severity-8+ resident call gets its intent overwritten to "escalation" by
- * markEscalation; filtering on intent alone would let those leak back in here.
+ * Membership is decided by leasing intent or a captured qualification, plus an exclusion for
+ * tenant issues. A severity-8+ resident call gets its intent overwritten to "escalation" by
+ * markEscalation, so filtering on intent alone would let those leak back in here.
  *
  * intent === "maintenance" is checked as well, so that deleting an issue from the Tenants page
  * doesn't pop its call back into the lead list as an orphan.
  *
  * Caveat inherited from filtering after pagination: a page of 15 can come back shorter when
- * some of those 15 were resident calls. Fine at this volume, and the same thing the page's
+ * some of those 15 were not leads. Fine at this volume, and the same thing the page's
  * own intent/outcome filters already do.
  */
 export const history = query({
@@ -68,13 +93,21 @@ export const history = query({
     // migration — safe because the .find() below only ever matches against `page`, which is
     // already scoped to this user's own conversations by the indexed query above.
     const allQualifications = await ctx.db.query("qualifications").collect();
+    const qualificationConversationIds = new Set(
+      allQualifications.flatMap((q) => (q.conversationId ? [q.conversationId] : [])),
+    );
+    const qualificationElevenLabsIds = new Set(
+      allQualifications.map((q) => q.elevenLabsConversationId),
+    );
     const residentCallIds = new Set(
       (await ctx.db.query("tenantIssues").collect()).map((i) => i.elevenLabsConversationId),
     );
 
     const page = await Promise.all(
       result.page
-        .filter((c) => !isResidentCall(c, residentCallIds))
+        .filter((c) =>
+          isLeasingLead(c, residentCallIds, qualificationConversationIds, qualificationElevenLabsIds),
+        )
         .map(async (c) => {
         const messages = await ctx.db
           .query("messages")
@@ -141,7 +174,7 @@ export const usage = query({
     // secondsUsed still rolls up globally (the `usage` table has no per-user split — it's
     // the account's ElevenLabs minute meter, not a per-tenant one, and splitting billing
     // tracking is a separate decision from scoping the Leads list itself). callCount and
-    // avgDurationSec below are this user's own calls, matching what the Leads page shows.
+    // avgDurationSec below are this user's leasing leads only, matching the Leads page.
     const row = await ctx.db
       .query("usage")
       .withIndex("by_month", (q) => q.eq("monthKey", key))
@@ -154,17 +187,32 @@ export const usage = query({
           .withIndex("by_user_and_started", (q) => q.eq("userId", user._id))
           .collect()
       : [];
+    const allQualifications = await ctx.db.query("qualifications").collect();
+    const qualificationConversationIds = new Set(
+      allQualifications.flatMap((q) => (q.conversationId ? [q.conversationId] : [])),
+    );
+    const qualificationElevenLabsIds = new Set(
+      allQualifications.map((q) => q.elevenLabsConversationId),
+    );
+    const residentCallIds = new Set(
+      (await ctx.db.query("tenantIssues").collect()).map((i) => i.elevenLabsConversationId),
+    );
+    const leadsThisMonth = conversations.filter(
+      (c) =>
+        monthKey(c.startedAt) === key &&
+        isLeasingLead(c, residentCallIds, qualificationConversationIds, qualificationElevenLabsIds),
+    );
     return {
       monthKey: key,
       secondsUsed,
       // limitSec: MONTHLY_LIMIT_SEC,
       // remainingSec: Math.max(0, MONTHLY_LIMIT_SEC - secondsUsed),
-      callCount: conversations.filter((c) => monthKey(c.startedAt) === key).length,
+      callCount: leadsThisMonth.length,
       avgDurationSec:
-        conversations.length > 0
+        leadsThisMonth.length > 0
           ? Math.round(
-              conversations.reduce((s, c) => s + (c.durationSec ?? 0), 0) /
-                conversations.length,
+              leadsThisMonth.reduce((s, c) => s + (c.durationSec ?? 0), 0) /
+                leadsThisMonth.length,
             )
           : 0,
     };
@@ -241,7 +289,7 @@ export const appendMessage = mutation({
   },
 });
 
-/** Lead funnel — resident calls are excluded for the same reason they are in `history`. */
+/** Lead funnel — same leasing-lead set as `history` and the top stat cards. */
 export const funnel = query({
   args: {},
   handler: async (ctx) => {
@@ -251,12 +299,21 @@ export const funnel = query({
     const residentCallIds = new Set(
       (await ctx.db.query("tenantIssues").collect()).map((i) => i.elevenLabsConversationId),
     );
+    const allQualifications = await ctx.db.query("qualifications").collect();
+    const qualificationConversationIds = new Set(
+      allQualifications.flatMap((q) => (q.conversationId ? [q.conversationId] : [])),
+    );
+    const qualificationElevenLabsIds = new Set(
+      allQualifications.map((q) => q.elevenLabsConversationId),
+    );
     const rows = (
       await ctx.db
         .query("conversations")
         .withIndex("by_user_and_started", (q) => q.eq("userId", user._id))
         .collect()
-    ).filter((c) => !isResidentCall(c, residentCallIds));
+    ).filter((c) =>
+      isLeasingLead(c, residentCallIds, qualificationConversationIds, qualificationElevenLabsIds),
+    );
     return {
       callsAnswered: rows.length,
       leadsQualified: rows.filter(
