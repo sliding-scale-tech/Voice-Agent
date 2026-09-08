@@ -110,7 +110,7 @@ export default function TenantsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Residents who called, what they called about, and how urgent it is. Click a row for the
           full transcript. Names and units are recorded as the caller gave them — nothing is
-          verified. Severity is Emily&apos;s judgment on the call; you can change it and the
+          verified. Severity is Sara&apos;s judgment on the call; you can change it and the
           original is kept.
         </p>
       </div>
@@ -154,7 +154,7 @@ export default function TenantsPage() {
       {filtered?.length === 0 && (
         <div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           {issues?.length === 0
-            ? "No resident calls logged yet. Emily adds them here as they call in."
+            ? "No resident calls logged yet. Sara adds them here as they call in."
             : "No issues match this filter."}
         </div>
       )}
@@ -210,7 +210,7 @@ export default function TenantsPage() {
           <h2 className="text-sm font-semibold">Severity scale</h2>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Emily scores every resident call against this exact scale — it&apos;s written into her
+          Sara scores every resident call against this exact scale — it&apos;s written into her
           instructions from the same source as this list, so the two can never drift apart. She
           scores the issue, not how upset the caller sounds.
         </p>
@@ -335,7 +335,7 @@ function ExpandedDetail({
           }
         />
         {issue.originalSeverity !== undefined && (
-          <DetailField label="Emily scored" value={`${issue.originalSeverity}/10`} />
+          <DetailField label="Sara scored" value={`${issue.originalSeverity}/10`} />
         )}
       </div>
 
@@ -560,7 +560,7 @@ function IssueModal({
 
         {issue.severityReason && (
           <div className="rounded-lg border border-border bg-muted/30 p-3">
-            <div className="text-xs font-medium text-muted-foreground">Emily&apos;s reasoning</div>
+            <div className="text-xs font-medium text-muted-foreground">Sara&apos;s reasoning</div>
             <div className="mt-0.5 text-sm">{issue.severityReason}</div>
           </div>
         )}
@@ -612,7 +612,7 @@ function IssueModal({
           <span className="text-sm font-medium">Severity (1-10)</span>
           {issue.originalSeverity !== undefined && (
             <span className="block text-xs text-muted-foreground">
-              Emily originally scored this {issue.originalSeverity}/10.
+              Sara originally scored this {issue.originalSeverity}/10.
             </span>
           )}
           <input

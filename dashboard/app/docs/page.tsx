@@ -77,7 +77,7 @@ export default function DocsPage() {
 
       {docs?.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center text-sm text-muted-foreground">
-          No knowledge yet. Add an answer so Emily can use it during calls.
+          No knowledge yet. Add an answer so Sara can use it during calls.
         </div>
       ) : null}
 

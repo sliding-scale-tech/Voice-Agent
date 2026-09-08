@@ -126,7 +126,7 @@ export function SignUpForm() {
   return (
     <AuthShell
       title="Create an account"
-      subtitle="Set up access to the Emily leasing dashboard."
+      subtitle="Set up access to the Sara leasing dashboard."
       footer={
         <>
           Already have an account?{" "}

@@ -17,13 +17,13 @@ export function AuthShell({
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-md">
-        <div className="mb-8 flex flex-col items-center text-center">
+        {/* <div className="mb-8 flex flex-col items-center text-center">
           <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-lg font-bold text-primary-foreground">
-            E
+            S
           </div>
-          <p className="mt-3 text-sm font-semibold text-foreground">Emily</p>
+          <p className="mt-3 text-sm font-semibold text-foreground">Sara</p>
           <p className="text-[11px] text-muted-foreground">Leasing Assistant</p>
-        </div>
+        </div> */}
 
         <div className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
           <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
