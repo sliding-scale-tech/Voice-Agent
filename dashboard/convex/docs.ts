@@ -9,18 +9,35 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import * as el from "./elevenLabsApi";
+import { currentUser, requireUser, requireUserId } from "./authz";
+
+// Shared with cloneDefaultsForUser below, so the two never drift into disagreeing on which
+// title marks a doc as generated rather than authored content worth cloning verbatim.
+const PROPERTY_DOC_TITLE = "Property details (auto-generated)";
 
 // --- Reads ----------------------------------------------------------------
 
+/** The signed-in user's own knowledge base. Empty (not an error) when signed out. */
 export const list = query({
   args: {},
-  handler: (ctx) => ctx.db.query("docs").order("desc").collect(),
+  handler: async (ctx) => {
+    const user = await currentUser(ctx);
+    if (!user) return [];
+    return ctx.db
+      .query("docs")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .collect();
+  },
 });
 
 export const syncedEntries = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const docs = await ctx.db.query("docs").collect();
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const docs = await ctx.db
+      .query("docs")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
     return docs
       .filter((d) => d.kbDocumentId !== undefined)
       .map((d) => ({
@@ -32,8 +49,60 @@ export const syncedEntries = internalQuery({
   },
 });
 
-/** Plain title+body text for grounding the SMS bot — distinct from syncedEntries, which
- * returns ElevenLabs KB references for the voice agent. */
+/**
+ * Seeds a brand-new user's knowledge base as a copy of the template's — see
+ * agents.templateOwnerId. A no-op if this user already has any docs (never clobbers real
+ * work) or if there's no template to copy from (a from-scratch install with nothing to clone).
+ *
+ * The auto-generated property doc is skipped on purpose: it's derived, not authored, and
+ * properties.cloneForUser regenerates this user's own copy of it from their own (also cloned)
+ * property row instead — cloning it verbatim here would only be correct until either property
+ * was next edited.
+ *
+ * Each cloned doc goes through the normal syncDoc → pollRagIndex → pushKnowledgeBase pipeline,
+ * the same as a doc saved by hand — there is no shortcut for "this text is already indexed
+ * somewhere," since ElevenLabs KB documents aren't shared across agents.
+ */
+export const cloneDefaultsForUser = internalMutation({
+  args: { userId: v.id("users"), templateUserId: v.optional(v.id("users")) },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("docs")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
+    const templateUserId = args.templateUserId;
+    if (existing || !templateUserId) return;
+
+    const templateDocs = await ctx.db
+      .query("docs")
+      .withIndex("by_user", (q) => q.eq("userId", templateUserId))
+      .collect();
+
+    const now = Date.now();
+    for (const doc of templateDocs) {
+      if (doc.title === PROPERTY_DOC_TITLE) continue;
+      const docId = await ctx.db.insert("docs", {
+        userId: args.userId,
+        title: doc.title,
+        body: doc.body,
+        syncState: "pending",
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.docs.syncDoc, { docId });
+    }
+  },
+});
+
+/**
+ * Plain title+body text for grounding the SMS bot — distinct from syncedEntries, which
+ * returns ElevenLabs KB references for the voice agent.
+ *
+ * Deliberately NOT scoped by user: the SMS/WhatsApp bot predates multi-tenancy and remains
+ * the single self-contained island described at the top of schema.ts, reading across every
+ * user's synced docs rather than one owner's. Scoping it is a real, separate decision — it
+ * wasn't part of what "Leads, Tenants, Knowledge, Property, Agent" asked for, so it stays as
+ * it was rather than silently changing WhatsApp's behavior as a side effect of this migration.
+ */
 export const syncedTextInternal = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -55,10 +124,14 @@ export const save = mutation({
     body: v.string(),
   },
   handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
     const now = Date.now();
     let docId = args.id;
 
     if (docId) {
+      const existing = await ctx.db.get(docId);
+      // A docId for someone else's doc, or one that's gone — either way, not this write's to make.
+      if (!existing || existing.userId !== user._id) throw new Error("Doc not found.");
       await ctx.db.patch(docId, {
         title: args.title,
         body: args.body,
@@ -68,6 +141,7 @@ export const save = mutation({
       });
     } else {
       docId = await ctx.db.insert("docs", {
+        userId: user._id,
         title: args.title,
         body: args.body,
         syncState: "pending",
@@ -83,14 +157,15 @@ export const save = mutation({
 export const remove = action({
   args: { docId: v.id("docs") },
   handler: async (ctx, args): Promise<void> => {
+    const userId = await requireUserId(ctx);
     const doc = await ctx.runQuery(internal.docs.getInternal, { docId: args.docId });
-    if (!doc) return;
+    if (!doc || doc.userId !== userId) return;
 
     if (doc.kbDocumentId) {
       await el.deleteKbDoc(doc.kbDocumentId, doc.ragIndexId);
     }
     await ctx.runMutation(internal.docs.deleteRow, { docId: args.docId });
-    await ctx.runAction(internal.agents.pushKnowledgeBase, {});
+    await ctx.runAction(internal.agents.pushKnowledgeBase, { userId });
   },
 });
 
@@ -153,8 +228,10 @@ export const pollRagIndex = internalAction({
           docId: args.docId,
           syncState: "synced",
         });
-        // Only now is the doc actually answerable, so attach it to the agent.
-        await ctx.runAction(internal.agents.pushKnowledgeBase, {});
+        // Only now is the doc actually answerable, so attach it to the agent. doc.userId is
+        // always set by this point — every doc that can reach a synced state was created
+        // through docs.save or syncPropertyDoc, both of which stamp it at insert time.
+        if (doc.userId) await ctx.runAction(internal.agents.pushKnowledgeBase, { userId: doc.userId });
         return;
       }
 
@@ -190,12 +267,15 @@ export const pollRagIndex = internalAction({
  * agent to first gather all five qualification fields.
  */
 export const syncPropertyDoc = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const property = await ctx.db.query("properties").first();
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const property = await ctx.db
+      .query("properties")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
     if (!property) return;
 
-    const title = "Property details (auto-generated)";
+    const title = PROPERTY_DOC_TITLE;
     const body = [
       `${property.name}. Pets ${property.petsAllowed ? "allowed" : "not allowed"}. Move-in window: within ${property.moveInWindowDays} days.`,
       "Available units:",
@@ -205,8 +285,12 @@ export const syncPropertyDoc = internalMutation({
       ),
     ].join("\n");
 
+    // Scoped to this user's own docs: two different users' properties both produce a doc
+    // titled "Property details (auto-generated)", and without the userId filter this would
+    // find and overwrite whichever one happened to exist first.
     const existing = await ctx.db
       .query("docs")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .filter((q) => q.eq(q.field("title"), title))
       .first();
 
@@ -220,7 +304,13 @@ export const syncPropertyDoc = internalMutation({
         updatedAt: Date.now(),
       });
     } else {
-      docId = await ctx.db.insert("docs", { title, body, syncState: "pending", updatedAt: Date.now() });
+      docId = await ctx.db.insert("docs", {
+        userId: args.userId,
+        title,
+        body,
+        syncState: "pending",
+        updatedAt: Date.now(),
+      });
     }
 
     await ctx.scheduler.runAfter(0, internal.docs.syncDoc, { docId });

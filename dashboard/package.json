@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.9.1",
+    "@clerk/ui": "^1.32.2",
     "@elevenlabs/elevenlabs-js": "^2.43.0",
     "@elevenlabs/react": "^1.1.0",
     "class-variance-authority": "^0.7.1",

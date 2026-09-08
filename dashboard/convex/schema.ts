@@ -2,16 +2,36 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // Mirrors Clerk users via the /auth webhook (user.created / session.created / user.updated).
+  users: defineTable({
+    clerkId: v.string(),
+    email: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    lastSignInAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_clerk_id", ["clerkId"])
+    .index("by_email", ["email"]),
+
   agents: defineTable({
+    userId: v.id("users"),
     elevenLabsAgentId: v.string(),
     name: v.string(),
     prompt: v.string(),
     firstMessage: v.string(),
     voiceId: v.string(),
     updatedAt: v.number(),
-  }).index("by_elevenlabs_id", ["elevenLabsAgentId"]),
+  })
+    .index("by_elevenlabs_id", ["elevenLabsAgentId"])
+    .index("by_user", ["userId"]),
 
   conversations: defineTable({
+    // Absent for the public landing-page demo (never signed in) and, briefly, for a phone
+    // call before the post-call webhook resolves and backfills it — see ingestFromWebhook.
+    userId: v.optional(v.id("users")),
     agentId: v.id("agents"),
     elevenLabsConversationId: v.optional(v.string()),
     channel: v.union(v.literal("browser"), v.literal("phone")),
@@ -45,6 +65,9 @@ export default defineSchema({
   })
     .index("by_agent", ["agentId"])
     .index("by_started", ["startedAt"])
+    // Powers the Leads page: one signed-in user's calls, newest first, without scanning
+    // every other user's rows to find them.
+    .index("by_user_and_started", ["userId", "startedAt"])
     .index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"]),
 
   messages: defineTable({
@@ -58,6 +81,7 @@ export default defineSchema({
   }).index("by_conversation", ["conversationId"]),
 
   docs: defineTable({
+    userId: v.id("users"),
     title: v.string(),
     body: v.string(),
     kbDocumentId: v.optional(v.string()),
@@ -70,7 +94,9 @@ export default defineSchema({
     ),
     syncError: v.optional(v.string()),
     updatedAt: v.number(),
-  }).index("by_sync_state", ["syncState"]),
+  })
+    .index("by_sync_state", ["syncState"])
+    .index("by_user", ["userId"]),
 
   usage: defineTable({
     monthKey: v.string(), // "2026-07"
@@ -109,6 +135,7 @@ export default defineSchema({
   }),
 
   properties: defineTable({
+    userId: v.id("users"),
     name: v.string(),
     units: v.array(
       v.object({
@@ -121,7 +148,27 @@ export default defineSchema({
     petsAllowed: v.boolean(),
     moveInWindowDays: v.number(),
     updatedAt: v.number(),
-  }),
+  }).index("by_user", ["userId"]),
+
+  // Feedback from the landing page's "Try yourself" demo only — never from the dashboard's
+  // own /call, where a customer testing their own agent has no reason to rate it.
+  //
+  // Written in two steps so a rating is never lost to someone abandoning the email prompt:
+  // ratings.submit inserts the star rating alone, ratings.attachEmail later patches an email
+  // onto that same row if and only if they go on to give one — which also triggers sending
+  // the transcript to it (convex/transcriptEmail.ts).
+  callRatings: defineTable({
+    // sessionStorage-scoped, not a signed-in identity: ties a rating back to one browser tab
+    // for this visit only, so a second "try" in the same tab can be told apart from a
+    // stranger's first one.
+    sessionId: v.string(),
+    conversationId: v.optional(v.id("conversations")),
+    rating: v.number(), // 1-5
+    email: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_conversation", ["conversationId"]),
 
   // Keyed by the ElevenLabs conversation id, not a Convex conversations._id: phone calls have
   // no browser to create a conversations row up front, so tool calls write here first and the
@@ -150,6 +197,12 @@ export default defineSchema({
   // inside the mutation, fail the tool call, and leave Emily telling the caller that something
   // broke mid-call. Normalize for display, store what was said.
   tenantIssues: defineTable({
+    // Resolved from the call's conversations row where possible (see tenants.logIssue) and
+    // backfilled at webhook time otherwise — same story as conversations.userId above. The
+    // Tenants page reads this table directly rather than through a conversation, so unlike
+    // qualifications (access-controlled via its parent conversation) this needs its own
+    // indexed column to scope the list itself.
+    userId: v.optional(v.id("users")),
     elevenLabsConversationId: v.string(),
     conversationId: v.optional(v.id("conversations")),
 
@@ -174,7 +227,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"])
-    .index("by_created", ["createdAt"]),
+    .index("by_created", ["createdAt"])
+    .index("by_user", ["userId"]),
 
   // --- WhatsApp automation ------------------------------------------------
   //

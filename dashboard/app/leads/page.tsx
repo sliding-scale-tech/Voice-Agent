@@ -1,16 +1,20 @@
 "use client";
 
-import { useQuery, usePaginatedQuery } from "convex/react";
-import { motion, AnimatePresence } from "framer-motion";
+import { usePaginatedQuery, useQuery } from "convex/react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  PhoneCall,
-  Clock,
-  TrendingUp,
   ChevronDown,
+  ChevronRight,
   ChevronsDown,
-  Phone,
-  Smartphone,
+  Clock3,
+  Filter,
+  Globe2,
   Loader2,
+  MoreVertical,
+  Phone,
+  PhoneCall,
+  Search,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
@@ -28,21 +32,15 @@ const INTENT_LABELS: Record<string, string> = {
   unclear: "Unclear",
 };
 
-/**
- * Maintenance is a real intent and still renders as a badge, but it is deliberately not
- * offered as a filter here: resident calls are excluded from this list server-side, so picking
- * it could only ever return nothing. Escalation stays — an off-topic or unclear caller can
- * still be escalated without being a resident.
- */
 const INTENT_FILTER_OPTIONS = Object.entries(INTENT_LABELS).filter(
   ([value]) => value !== "maintenance",
 );
 
 const OUTCOME_STYLES: Record<string, string> = {
-  tour_booked: "bg-success/15 text-success",
-  disqualified: "bg-warning/15 text-warning-foreground",
-  escalated: "bg-destructive/15 text-destructive",
-  logged_only: "bg-muted text-muted-foreground",
+  tour_booked: "bg-emerald-50 text-emerald-600",
+  disqualified: "bg-amber-50 text-amber-700",
+  escalated: "bg-red-50 text-red-600",
+  logged_only: "bg-blue-50 text-blue-600",
 };
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -51,161 +49,6 @@ const OUTCOME_LABELS: Record<string, string> = {
   escalated: "Escalated",
   logged_only: "Logged only",
 };
-
-export default function LeadsPage() {
-  const {
-    results: history,
-    status: historyStatus,
-    loadMore,
-  } = usePaginatedQuery(api.conversations.history, {}, { initialNumItems: 15 });
-  const usage = useQuery(api.conversations.usage);
-  const funnel = useQuery(api.conversations.funnel);
-  const [selected, setSelected] = useState<Id<"conversations"> | null>(null);
-  const [intentFilter, setIntentFilter] = useState<string>("all");
-  const [outcomeFilter, setOutcomeFilter] = useState<string>("all");
-
-  const transcript = useQuery(
-    api.conversations.transcript,
-    selected ? { conversationId: selected } : "skip",
-  );
-  const qualification = useQuery(
-    api.qualifications.forConversation,
-    selected ? { conversationId: selected } : "skip",
-  );
-
-  const filtered = useMemo(() => {
-    if (!history) return history;
-    return history.filter((call) => {
-      if (intentFilter !== "all" && call.intent !== intentFilter) return false;
-      if (outcomeFilter !== "all" && call.outcome !== outcomeFilter) return false;
-      return true;
-    });
-  }, [history, intentFilter, outcomeFilter]);
-
-  return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Leads</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Every prospective-renter call, with its full transcript. Calls from existing residents
-          live on the Tenants page instead.
-        </p>
-      </div>
-
-      {/* "Minutes left" card removed along with the 15-min/month cap it tracked — no longer
-          applicable now that ElevenLabs is upgraded. */}
-      {usage && (
-        <div className="grid grid-cols-3 gap-3">
-          <StatCard icon={PhoneCall} label="Calls this month" value={String(usage.callCount)} />
-          <StatCard icon={Clock} label="Minutes used" value={formatDuration(usage.secondsUsed)} />
-          <StatCard icon={TrendingUp} label="Avg call" value={formatDuration(usage.avgDurationSec)} />
-        </div>
-      )}
-
-      {funnel && <FunnelChart funnel={funnel} />}
-
-      <div className="flex flex-wrap gap-2">
-        <select
-          value={intentFilter}
-          onChange={(e) => setIntentFilter(e.target.value)}
-          className="rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm"
-        >
-          <option value="all">All intents</option>
-          {INTENT_FILTER_OPTIONS.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={outcomeFilter}
-          onChange={(e) => setOutcomeFilter(e.target.value)}
-          className="rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm"
-        >
-          <option value="all">All outcomes</option>
-          {Object.entries(OUTCOME_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {filtered?.length === 0 && (
-        <div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-          No calls match this filter.
-        </div>
-      )}
-
-      {/* Mobile: stacked cards. Desktop: table. Avoids horizontal scroll on small screens. */}
-      <div className="space-y-3 sm:hidden">
-        {filtered?.map((call, i) => (
-          <CallCard
-            key={call._id}
-            call={call}
-            index={i}
-            expanded={selected === call._id}
-            onToggle={() => setSelected(selected === call._id ? null : call._id)}
-            transcript={selected === call._id ? transcript : undefined}
-            qualification={selected === call._id ? qualification : undefined}
-          />
-        ))}
-      </div>
-
-      <div className="hidden overflow-hidden rounded-xl border border-border bg-card shadow-sm sm:block">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Timestamp</th>
-              <th className="px-4 py-3 font-medium">Channel</th>
-              <th className="px-4 py-3 font-medium">Caller</th>
-              <th className="px-4 py-3 font-medium">Intent</th>
-              <th className="px-4 py-3 font-medium">Outcome</th>
-              <th className="px-4 py-3 font-medium">Score</th>
-              <th className="px-4 py-3 font-medium">Duration</th>
-              <th className="px-4 py-3 font-medium">Escalated to</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered?.map((call, i) => (
-              <FragmentRow
-                key={call._id}
-                call={call}
-                index={i}
-                expanded={selected === call._id}
-                onToggle={() => setSelected(selected === call._id ? null : call._id)}
-                transcript={selected === call._id ? transcript : undefined}
-                qualification={selected === call._id ? qualification : undefined}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {historyStatus !== "Exhausted" && (
-        <div className="flex justify-center pt-2">
-          <button
-            onClick={() => loadMore(15)}
-            disabled={historyStatus !== "CanLoadMore"}
-            className="flex items-center gap-2 rounded-lg border border-input px-4 py-2 text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {historyStatus === "LoadingMore" ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Loading…
-              </>
-            ) : (
-              <>
-                <ChevronsDown className="h-3.5 w-3.5" />
-                Show more
-              </>
-            )}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 type CallRow = {
   _id: Id<"conversations">;
@@ -235,99 +78,322 @@ type Qualification = {
   tourSlot?: string;
 } | null;
 
+export default function LeadsPage() {
+  const {
+    results: history,
+    status: historyStatus,
+    loadMore,
+  } = usePaginatedQuery(api.conversations.history, {}, { initialNumItems: 15 });
+  const usage = useQuery(api.conversations.usage);
+  const funnel = useQuery(api.conversations.funnel);
+  const [selected, setSelected] = useState<Id<"conversations"> | null>(null);
+  const [intentFilter, setIntentFilter] = useState("all");
+  const [outcomeFilter, setOutcomeFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const transcript = useQuery(
+    api.conversations.transcript,
+    selected ? { conversationId: selected } : "skip",
+  );
+  const qualification = useQuery(
+    api.qualifications.forConversation,
+    selected ? { conversationId: selected } : "skip",
+  );
+
+  const filtered = useMemo(() => {
+    if (!history) return history;
+    const term = search.trim().toLowerCase();
+    return history.filter((call) => {
+      if (intentFilter !== "all" && call.intent !== intentFilter) return false;
+      if (outcomeFilter !== "all" && call.outcome !== outcomeFilter) return false;
+      if (!term) return true;
+      return [
+        call.callerNumber,
+        call.channel,
+        call.intent && INTENT_LABELS[call.intent],
+        call.outcome && OUTCOME_LABELS[call.outcome],
+      ]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(term));
+    });
+  }, [history, intentFilter, outcomeFilter, search]);
+
+  return (
+    <div className="space-y-7 pb-10">
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">History</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Every call, with its full transcript.</p>
+      </header>
+
+      {usage ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <StatCard
+            icon={PhoneCall}
+            label="Calls this month"
+            value={String(usage.callCount)}
+            accent="blue"
+          />
+          <StatCard
+            icon={Clock3}
+            label="Avg call duration"
+            value={formatDuration(usage.avgDurationSec)}
+            accent="violet"
+          />
+        </div>
+      ) : null}
+
+      {funnel ? <FunnelChart funnel={funnel} /> : null}
+
+      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex flex-wrap gap-3">
+            <select
+              value={intentFilter}
+              onChange={(event) => setIntentFilter(event.target.value)}
+              className="h-10 min-w-32 rounded-lg border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+            >
+              <option value="all">All intents</option>
+              {INTENT_FILTER_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={outcomeFilter}
+              onChange={(event) => setOutcomeFilter(event.target.value)}
+              className="h-10 min-w-36 rounded-lg border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+            >
+              <option value="all">All outcomes</option>
+              {Object.entries(OUTCOME_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <label className="relative block min-w-0 flex-1 sm:w-60">
+              <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search calls..."
+                className="h-10 w-full rounded-lg border border-input bg-card pr-3 pl-9 text-sm outline-none placeholder:text-muted-foreground-subtle focus:ring-2 focus:ring-ring/20"
+              />
+            </label>
+            <button
+              type="button"
+              aria-label="More filters"
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-input text-muted-foreground hover:bg-accent"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {filtered?.length === 0 ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">
+            No calls match this filter.
+          </div>
+        ) : null}
+
+        <div className="space-y-3 p-4 sm:hidden">
+          {filtered?.map((call, index) => (
+            <CallCard
+              key={call._id}
+              call={call}
+              index={index}
+              expanded={selected === call._id}
+              onToggle={() => setSelected(selected === call._id ? null : call._id)}
+              transcript={selected === call._id ? transcript : undefined}
+              qualification={selected === call._id ? qualification : undefined}
+            />
+          ))}
+        </div>
+
+        <div className="hidden sm:block">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/45 text-left text-[11px] tracking-wide text-muted-foreground uppercase">
+                <th className="w-10 px-5 py-3 font-medium" />
+                <th className="px-2 py-3 font-medium">Timestamp</th>
+                <th className="px-3 py-3 font-medium">Channel</th>
+                <th className="px-3 py-3 font-medium">Caller</th>
+                <th className="px-3 py-3 font-medium">Outcome</th>
+                <th className="px-3 py-3 font-medium">Duration</th>
+                <th className="w-12 px-3 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered?.map((call, index) => (
+                <CallTableRow
+                  key={call._id}
+                  call={call}
+                  index={index}
+                  expanded={selected === call._id}
+                  onToggle={() => setSelected(selected === call._id ? null : call._id)}
+                  transcript={selected === call._id ? transcript : undefined}
+                  qualification={selected === call._id ? qualification : undefined}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {historyStatus !== "Exhausted" ? (
+        <div className="flex justify-center">
+          <button
+            onClick={() => loadMore(15)}
+            disabled={historyStatus !== "CanLoadMore"}
+            className="flex items-center gap-2 rounded-lg border border-input bg-card px-4 py-2 text-sm shadow-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {historyStatus === "LoadingMore" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ChevronsDown className="h-3.5 w-3.5" />
+            )}
+            {historyStatus === "LoadingMore" ? "Loading…" : "Show more"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  accent,
+}: {
+  icon: typeof PhoneCall;
+  label: string;
+  value: string;
+  accent: "blue" | "violet";
+}) {
+  return (
+    <div className="flex min-h-24 items-center rounded-2xl border border-border bg-card px-5 py-4 shadow-sm">
+      <div
+        className={`mr-4 flex h-10 w-10 items-center justify-center rounded-xl ${
+          accent === "blue" ? "bg-blue-50 text-blue-600" : "bg-violet-50 text-violet-600"
+        }`}
+      >
+        <Icon className="h-5 w-5" />
+      </div>
+      <div>
+        <p className="text-[11px] tracking-wide text-muted-foreground uppercase">{label}</p>
+        <p className="mt-0.5 text-2xl font-bold tabular-nums text-foreground">{value}</p>
+        <p className="mt-0.5 text-[11px] text-emerald-600">Current month</p>
+      </div>
+      <svg viewBox="0 0 80 34" aria-hidden className="ml-auto h-9 w-20">
+        <path
+          d="M2 25 C16 23 20 28 34 24 S48 18 56 24 S68 29 78 7"
+          fill="none"
+          stroke={accent === "blue" ? "#3b82f6" : "#8b5cf6"}
+          strokeWidth="1.5"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function FunnelChart({
+  funnel,
+}: {
+  funnel: { callsAnswered: number; leadsQualified: number; toursBooked: number };
+}) {
+  const max = Math.max(funnel.callsAnswered, 1);
+  const leadsPercent = Math.round((funnel.leadsQualified / max) * 100);
+  const toursPercent = Math.round((funnel.toursBooked / max) * 100);
+
+  return (
+    <section className="rounded-2xl border border-border bg-card px-5 py-5 shadow-sm sm:px-7 sm:py-6">
+      <div className="mb-7 flex items-center gap-2">
+        <Filter className="h-4 w-4 text-blue-600" />
+        <h2 className="text-sm font-semibold">Conversion funnel</h2>
+      </div>
+      <div className="grid gap-7 md:grid-cols-[140px_1fr_1fr] md:items-end">
+        <div>
+          <p className="text-3xl font-semibold tabular-nums">
+            {String(funnel.callsAnswered).padStart(2, "0")}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">Calls answered</p>
+        </div>
+        <FunnelStep
+          value={funnel.leadsQualified}
+          label="Leads qualified"
+          percent={leadsPercent}
+          color="bg-blue-500"
+        />
+        <FunnelStep
+          value={funnel.toursBooked}
+          label="Tours booked"
+          percent={toursPercent}
+          color="bg-emerald-500"
+        />
+      </div>
+    </section>
+  );
+}
+
+function FunnelStep({
+  value,
+  label,
+  percent,
+  color,
+}: {
+  value: number;
+  label: string;
+  percent: number;
+  color: string;
+}) {
+  return (
+    <div>
+      <p className="text-xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-2 text-xs text-muted-foreground">{label}</p>
+      <div className="mt-3 flex items-center gap-3">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.max(percent, value > 0 ? 4 : 0)}%` }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+            className={`h-full rounded-full ${color}`}
+          />
+        </div>
+        <span className="w-8 text-right text-[11px] tabular-nums text-muted-foreground">
+          {percent}%
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function OutcomeBadge({ call }: { call: CallRow }) {
   if (call.outcome) {
     return (
-      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${OUTCOME_STYLES[call.outcome]}`}>
-        {OUTCOME_LABELS[call.outcome]}
+      <span
+        className={`rounded-md px-2 py-1 text-[10px] font-semibold tracking-wide uppercase ${
+          OUTCOME_STYLES[call.outcome] ?? "bg-muted text-muted-foreground"
+        }`}
+      >
+        {OUTCOME_LABELS[call.outcome] ?? call.outcome}
       </span>
     );
   }
   if (call.status === "active") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
-        <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-        live
+      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-600 uppercase">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+        Live
       </span>
     );
   }
   return <span className="text-muted-foreground">—</span>;
 }
 
-const SCORE_STYLES: Record<"high" | "medium" | "low", string> = {
-  high: "bg-success/15 text-success",
-  medium: "bg-warning/15 text-warning-foreground",
-  low: "bg-muted text-muted-foreground",
-};
-
-function LeadScoreBadge({ score }: { score: number }) {
-  const band = score >= 7 ? "high" : score >= 4 ? "medium" : "low";
-  return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${SCORE_STYLES[band]}`}>
-      {score}/10
-    </span>
-  );
-}
-
-function ExpandedDetail({
-  transcript,
-  qualification,
-  summary,
-}: {
-  transcript?: Array<{ _id: string; role: string; text: string }>;
-  qualification?: Qualification;
-  summary?: string;
-}) {
-  return (
-    <div className="space-y-4">
-      {summary && <p className="text-sm italic text-muted-foreground">{summary}</p>}
-
-      {qualification && (
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-3">
-          <Field label="Bedrooms" value={qualification.bedrooms} />
-          <Field label="Move-in" value={qualification.moveInDate} />
-          <Field label="Budget" value={qualification.budget ? `$${qualification.budget}` : undefined} />
-          <Field
-            label="Pets"
-            value={
-              qualification.petsWanted === undefined
-                ? undefined
-                : qualification.petsWanted
-                  ? qualification.petType ?? "Yes"
-                  : "No"
-            }
-          />
-          <Field label="Name" value={qualification.callerName} />
-          <Field label="Phone" value={qualification.callerPhone} />
-          {qualification.tourSlot && <Field label="Tour slot" value={qualification.tourSlot} />}
-          {qualification.disqualifyReason && (
-            <Field label="Disqualify reason" value={qualification.disqualifyReason} />
-          )}
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {transcript?.length ? (
-          transcript.map((line) => (
-            <div key={line._id} className={line.role === "user" ? "text-right" : "text-left"}>
-              <span
-                className={`inline-block max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
-                  line.role === "user" ? "bg-secondary text-secondary-foreground" : "bg-accent text-accent-foreground"
-                }`}
-              >
-                {line.text}
-              </span>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm text-muted-foreground">No transcript recorded for this call.</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FragmentRow({
+function CallTableRow({
   call,
   index,
   expanded,
@@ -349,44 +415,57 @@ function FragmentRow({
         animate={{ opacity: 1 }}
         transition={{ delay: Math.min(index, 8) * 0.03 }}
         onClick={onToggle}
-        className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40"
+        className="cursor-pointer border-b border-border last:border-0 hover:bg-blue-50/40"
       >
-        <td className="px-4 py-3">{new Date(call.startedAt).toLocaleString()}</td>
-        <td className="px-4 py-3">
-          <span className="inline-flex items-center gap-1.5 capitalize text-muted-foreground">
-            {call.channel === "phone" ? <Phone className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
+        <td className="px-5 py-3.5">
+          <motion.span
+            animate={{ rotate: expanded ? 90 : 0 }}
+            className="block text-blue-500"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </motion.span>
+        </td>
+        <td className="px-2 py-3.5 font-medium">{new Date(call.startedAt).toLocaleString()}</td>
+        <td className="px-3 py-3.5">
+          <span className="inline-flex items-center gap-2 capitalize text-muted-foreground">
+            {call.channel === "phone" ? (
+              <Phone className="h-3.5 w-3.5" />
+            ) : (
+              <Globe2 className="h-3.5 w-3.5" />
+            )}
             {call.channel}
           </span>
         </td>
-        <td className="px-4 py-3">{call.callerNumber ?? "—"}</td>
-        <td className="px-4 py-3">{call.intent ? INTENT_LABELS[call.intent] : "—"}</td>
-        <td className="px-4 py-3">
+        <td className="px-3 py-3.5">{call.callerNumber ?? "—"}</td>
+        <td className="px-3 py-3.5">
           <OutcomeBadge call={call} />
         </td>
-        <td className="px-4 py-3">
-          <LeadScoreBadge score={call.leadScore} />
+        <td className="px-3 py-3.5 tabular-nums">{formatDuration(call.durationSec)}</td>
+        <td className="px-3 py-3.5 text-muted-foreground">
+          <MoreVertical className="h-4 w-4" />
         </td>
-        <td className="px-4 py-3 tabular-nums">{formatDuration(call.durationSec)}</td>
-        <td className="px-4 py-3">{call.escalatedTo ?? "—"}</td>
       </motion.tr>
       <AnimatePresence initial={false}>
-        {expanded && (
+        {expanded ? (
           <tr>
-            <td colSpan={8} className="border-b border-border bg-muted/20 p-0">
+            <td colSpan={7} className="border-b border-border bg-muted/20 p-0">
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
                 <div className="p-5">
-                  <ExpandedDetail transcript={transcript} qualification={qualification} summary={call.summary} />
+                  <ExpandedDetail
+                    transcript={transcript}
+                    qualification={qualification}
+                    summary={call.summary}
+                  />
                 </div>
               </motion.div>
             </td>
           </tr>
-        )}
+        ) : null}
       </AnimatePresence>
     </>
   );
@@ -412,43 +491,97 @@ function CallCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index, 8) * 0.04 }}
-      className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+      className="overflow-hidden rounded-xl border border-border bg-card"
     >
       <button onClick={onToggle} className="flex w-full items-center justify-between gap-3 p-4 text-left">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {call.channel === "phone" ? <Phone className="h-3 w-3" /> : <Smartphone className="h-3 w-3" />}
-            {new Date(call.startedAt).toLocaleString()}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <span className="text-sm font-medium">{call.intent ? INTENT_LABELS[call.intent] : "Unclear"}</span>
+          <p className="text-xs text-muted-foreground">{new Date(call.startedAt).toLocaleString()}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-sm font-medium">{call.callerNumber ?? "Browser call"}</span>
             <OutcomeBadge call={call} />
-            <LeadScoreBadge score={call.leadScore} />
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {formatDuration(call.durationSec)}
-          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+          <motion.span animate={{ rotate: expanded ? 180 : 0 }}>
             <ChevronDown className="h-4 w-4" />
           </motion.span>
         </div>
       </button>
       <AnimatePresence initial={false}>
-        {expanded && (
+        {expanded ? (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
             className="overflow-hidden border-t border-border"
           >
             <div className="p-4">
-              <ExpandedDetail transcript={transcript} qualification={qualification} summary={call.summary} />
+              <ExpandedDetail
+                transcript={transcript}
+                qualification={qualification}
+                summary={call.summary}
+              />
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+function ExpandedDetail({
+  transcript,
+  qualification,
+  summary,
+}: {
+  transcript?: Array<{ _id: string; role: string; text: string }>;
+  qualification?: Qualification;
+  summary?: string;
+}) {
+  return (
+    <div className="space-y-4">
+      {summary ? <p className="text-sm italic text-muted-foreground">{summary}</p> : null}
+      {qualification ? (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-3">
+          <Field label="Bedrooms" value={qualification.bedrooms} />
+          <Field label="Move-in" value={qualification.moveInDate} />
+          <Field label="Budget" value={qualification.budget ? `$${qualification.budget}` : undefined} />
+          <Field
+            label="Pets"
+            value={
+              qualification.petsWanted === undefined
+                ? undefined
+                : qualification.petsWanted
+                  ? qualification.petType ?? "Yes"
+                  : "No"
+            }
+          />
+          <Field label="Name" value={qualification.callerName} />
+          <Field label="Phone" value={qualification.callerPhone} />
+          <Field label="Tour slot" value={qualification.tourSlot} />
+        </div>
+      ) : null}
+      <div className="space-y-3">
+        {transcript?.length ? (
+          transcript.map((line) => (
+            <div key={line._id} className={line.role === "user" ? "text-right" : "text-left"}>
+              <span
+                className={`inline-block max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                  line.role === "user"
+                    ? "bg-secondary text-secondary-foreground"
+                    : "bg-accent text-accent-foreground"
+                }`}
+              >
+                {line.text}
+              </span>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">No transcript recorded for this call.</p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -458,74 +591,6 @@ function Field({ label, value }: { label: string; value?: string }) {
     <div>
       <span className="text-muted-foreground">{label}: </span>
       <span>{value}</span>
-    </div>
-  );
-}
-
-function FunnelChart({
-  funnel,
-}: {
-  funnel: { callsAnswered: number; leadsQualified: number; toursBooked: number };
-}) {
-  const max = Math.max(funnel.callsAnswered, 1);
-  const steps = [
-    { label: "Calls answered", value: funnel.callsAnswered },
-    { label: "Leads qualified", value: funnel.leadsQualified },
-    { label: "Tours booked", value: funnel.toursBooked },
-  ];
-
-  return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="mb-4 text-sm font-medium">Conversion funnel</h2>
-      <div className="space-y-3">
-        {steps.map((step, i) => {
-          const pct = Math.round((step.value / max) * 100);
-          const prevValue = i > 0 ? steps[i - 1].value : step.value;
-          const conversionPct = prevValue > 0 ? Math.round((step.value / prevValue) * 100) : null;
-          return (
-            <div key={step.label}>
-              <div className="mb-1 flex items-baseline justify-between text-sm">
-                <span className="text-muted-foreground">{step.label}</span>
-                <span className="flex items-baseline gap-2">
-                  <span className="font-semibold tabular-nums">{step.value}</span>
-                  {conversionPct !== null && i > 0 && (
-                    <span className="text-xs text-muted-foreground">({conversionPct}%)</span>
-                  )}
-                </span>
-              </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${Math.max(pct, 3)}%` }}
-                  transition={{ duration: 0.6, ease: "easeOut", delay: i * 0.1 }}
-                  className="h-full rounded-full bg-primary"
-                  style={{ opacity: 1 - i * 0.22 }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof PhoneCall;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
-        {label}
-      </div>
-      <div className="mt-1.5 text-xl font-semibold tabular-nums">{value}</div>
     </div>
   );
 }
