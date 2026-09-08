@@ -1,9 +1,10 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { isOtlpPayload, parseOtlp } from "./otlp";
 import { computeLeadScore } from "./leadScoring";
+import { currentUser } from "./authz";
 
 // Disabled: the 15-min/month free-tier cap no longer applies now that ElevenLabs is upgraded.
 // Usage is still tracked below (secondsUsed) for visibility; it just isn't enforced as a limit
@@ -52,12 +53,20 @@ function isResidentCall(
 export const history = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
+    const user = await currentUser(ctx);
+    if (!user) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
+
     const result = await ctx.db
       .query("conversations")
-      .withIndex("by_started")
+      .withIndex("by_user_and_started", (q) => q.eq("userId", user._id))
       .order("desc")
       .paginate(args.paginationOpts);
 
+    // Read across every user's rows rather than joining per-conversation, same as before this
+    // migration — safe because the .find() below only ever matches against `page`, which is
+    // already scoped to this user's own conversations by the indexed query above.
     const allQualifications = await ctx.db.query("qualifications").collect();
     const residentCallIds = new Set(
       (await ctx.db.query("tenantIssues").collect()).map((i) => i.elevenLabsConversationId),
@@ -82,23 +91,69 @@ export const history = query({
 
 export const transcript = query({
   args: { conversationId: v.id("conversations") },
-  handler: (ctx, args) =>
-    ctx.db
+  handler: async (ctx, args) => {
+    const conv = await ctx.db.get(args.conversationId);
+    if (!conv) return [];
+    // A conversation with no owner is either the public landing-page demo (never signed in,
+    // so nothing to compare against) or a phone call still waiting on the post-call webhook
+    // to backfill it — both readable by anyone who already has the id, exactly as before this
+    // migration. One that DOES have an owner is dashboard data: only that owner reads it.
+    if (conv.userId) {
+      const user = await currentUser(ctx);
+      if (!user || user._id !== conv.userId) return [];
+    }
+    return ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
-      .collect(),
+      .collect();
+  },
+});
+
+/**
+ * Resolves which user a mid-call tool webhook belongs to, from the same
+ * system__conversation_id every tool call already carries (convex/http.ts).
+ *
+ * Only ever succeeds once a conversations row exists for this call — true from the very
+ * start of a browser call (created before the ElevenLabs session even connects), but not
+ * necessarily yet for a phone call's first tool invocation. Callers fall back to the
+ * pre-multi-tenancy default agent/property when this returns undefined, exactly as they did
+ * before multi-tenancy existed.
+ */
+export const ownerByElevenLabsId = internalQuery({
+  args: { elevenLabsConversationId: v.string() },
+  handler: async (ctx, args) => {
+    const conv = await ctx.db
+      .query("conversations")
+      .withIndex("by_elevenlabs_conversation_id", (q) =>
+        q.eq("elevenLabsConversationId", args.elevenLabsConversationId),
+      )
+      .first();
+    return conv?.userId;
+  },
 });
 
 export const usage = query({
   args: {},
   handler: async (ctx) => {
     const key = monthKey(Date.now());
+    const user = await currentUser(ctx);
+
+    // secondsUsed still rolls up globally (the `usage` table has no per-user split — it's
+    // the account's ElevenLabs minute meter, not a per-tenant one, and splitting billing
+    // tracking is a separate decision from scoping the Leads list itself). callCount and
+    // avgDurationSec below are this user's own calls, matching what the Leads page shows.
     const row = await ctx.db
       .query("usage")
       .withIndex("by_month", (q) => q.eq("monthKey", key))
       .first();
     const secondsUsed = row?.secondsUsed ?? 0;
-    const conversations = await ctx.db.query("conversations").collect();
+
+    const conversations = user
+      ? await ctx.db
+          .query("conversations")
+          .withIndex("by_user_and_started", (q) => q.eq("userId", user._id))
+          .collect()
+      : [];
     return {
       monthKey: key,
       secondsUsed,
@@ -120,13 +175,20 @@ export const usage = query({
 
 export const start = mutation({
   args: { agentId: v.id("agents") },
-  handler: (ctx, args) =>
-    ctx.db.insert("conversations", {
+  handler: async (ctx, args) => {
+    // No sign-in requirement here on purpose: this is also the entry point for the public
+    // landing-page demo. Signed in → the call is stamped as this user's own, and only they
+    // will ever see it on their Leads page. Not signed in → userId stays undefined, same as
+    // it implicitly was before this migration.
+    const user = await currentUser(ctx);
+    return ctx.db.insert("conversations", {
+      userId: user?._id,
       agentId: args.agentId,
       channel: "browser",
       startedAt: Date.now(),
       status: "active",
-    }),
+    });
+  },
 });
 
 /**
@@ -183,12 +245,18 @@ export const appendMessage = mutation({
 export const funnel = query({
   args: {},
   handler: async (ctx) => {
+    const user = await currentUser(ctx);
+    if (!user) return { callsAnswered: 0, leadsQualified: 0, toursBooked: 0 };
+
     const residentCallIds = new Set(
       (await ctx.db.query("tenantIssues").collect()).map((i) => i.elevenLabsConversationId),
     );
-    const rows = (await ctx.db.query("conversations").collect()).filter(
-      (c) => !isResidentCall(c, residentCallIds),
-    );
+    const rows = (
+      await ctx.db
+        .query("conversations")
+        .withIndex("by_user_and_started", (q) => q.eq("userId", user._id))
+        .collect()
+    ).filter((c) => !isResidentCall(c, residentCallIds));
     return {
       callsAnswered: rows.length,
       leadsQualified: rows.filter(
@@ -203,6 +271,11 @@ export const funnel = query({
  * Called by the escalate server tool. The conversations row may not exist yet for a phone
  * call — the escalation still needs to be visible immediately, so a placeholder row is
  * created here and the post-call webhook fills in the rest later.
+ *
+ * That backfill is also what assigns userId on a phone call's placeholder row: unlike escalate
+ * (or log_tenant_issue below), this route has no reliable way yet to tell which of our users
+ * the call belongs to — only the post-call webhook, which gets the real agent_id straight from
+ * ElevenLabs, can resolve that. See ingestFromWebhook.
  */
 export const markEscalation = internalMutation({
   args: {
@@ -323,7 +396,20 @@ export const ingestFromWebhook = internalMutation({
     const conversationId: string | undefined = otlp?.conversationId ?? data?.conversation_id;
     if (!conversationId) return;
 
-    const agent = await ctx.db.query("agents").first();
+    // ElevenLabs includes which agent took the call right alongside conversation_id — verified
+    // against a real captured payload (see debugWebhookLogs), both at data.agent_id and inside
+    // the OTLP span attributes as elevenlabs.agent_id. This is what makes a phone call
+    // attributable to the right user at all: nothing earlier in the call (the tool webhooks in
+    // http.ts) has a reliable way to know that. Falls back to whichever agent exists first if
+    // the id is missing or unrecognised — defensive, matching the rest of this function, and
+    // exactly today's behavior for the one pre-multi-tenancy agent / the public demo agent.
+    const agentId: string | undefined = data?.agent_id;
+    const agent = agentId
+      ? ((await ctx.db
+          .query("agents")
+          .withIndex("by_elevenlabs_id", (q) => q.eq("elevenLabsAgentId", agentId))
+          .first()) ?? (await ctx.db.query("agents").first()))
+      : await ctx.db.query("agents").first();
     if (!agent) return;
 
     const transcript: Array<{ role?: string; message?: string; time_in_call_secs?: number }> = otlp
@@ -355,6 +441,7 @@ export const ingestFromWebhook = internalMutation({
 
     if (!conv) {
       const id = await ctx.db.insert("conversations", {
+        userId: agent.userId,
         agentId: agent._id,
         elevenLabsConversationId: conversationId,
         channel: "phone",
@@ -371,6 +458,11 @@ export const ingestFromWebhook = internalMutation({
         durationSec: durationSec ?? Math.round((endedAt - conv.startedAt) / 1000),
         status: "ended",
         callerNumber: conv.callerNumber ?? callerNumber,
+        // Backfills a phone call's placeholder row (markEscalation/markTenantIssue create one
+        // with no owner, since neither has a reliable agent_id to resolve one from) now that
+        // the real owning agent is known. Never overwrites a browser call's userId, which was
+        // already set correctly the moment the call started.
+        userId: conv.userId ?? agent.userId,
       });
     }
     if (!conv) return;
@@ -426,6 +518,7 @@ export const ingestFromWebhook = internalMutation({
         elevenLabsConversationId: conversationId,
         conversationId: conv._id,
         callerNumber,
+        userId: conv.userId,
       });
     }
 

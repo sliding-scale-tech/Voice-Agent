@@ -1,11 +1,24 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
+import { currentUser } from "./authz";
 
 // --- Reads ----------------------------------------------------------------
 
+/**
+ * This table has no userId column of its own — access is controlled through the parent
+ * conversation instead, the same way conversations.transcript does it. A conversation with no
+ * owner (the public landing-page demo, or a phone call not yet reconciled) stays readable by
+ * anyone who already has its id, exactly as before this migration.
+ */
 export const forConversation = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
+    const conv = await ctx.db.get(args.conversationId);
+    if (!conv) return null;
+    if (conv.userId) {
+      const user = await currentUser(ctx);
+      if (!user || user._id !== conv.userId) return null;
+    }
     const rows = await ctx.db.query("qualifications").collect();
     return rows.find((r) => r.conversationId === args.conversationId) ?? null;
   },

@@ -1,13 +1,42 @@
 import { httpRouter, type GenericActionCtx } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { DataModel } from "./_generated/dataModel";
+import type { DataModel, Id } from "./_generated/dataModel";
 import { clampSeverity } from "./severity";
 import { evaluateQualification } from "./qualifyRules";
 import * as waha from "./wahaApi";
 import { realPhone } from "./sanitize";
+import { handleClerkWebhook } from "./clerkWebhook";
 
 const http = httpRouter();
+
+/**
+ * Resolves which user a mid-call tool request belongs to, from the ElevenLabs conversation id
+ * every tool call carries. Returns undefined whenever it can't yet be resolved — the public
+ * landing-page demo, or a phone call whose Convex conversations row hasn't been created yet
+ * (see conversations.ownerByElevenLabsId) — and every caller below already falls back to the
+ * pre-multi-tenancy default in that case, exactly as this codebase behaved before.
+ */
+async function resolveOwner(
+  ctx: GenericActionCtx<DataModel>,
+  conversationId: string | undefined,
+): Promise<Id<"users"> | undefined> {
+  if (!conversationId) return undefined;
+  // Convex queries can't return `undefined` over the wire — a query handler returning it comes
+  // back as `null` here, so this normalizes back to `undefined` for the rest of this file.
+  const userId = await ctx.runQuery(internal.conversations.ownerByElevenLabsId, {
+    elevenLabsConversationId: conversationId,
+  });
+  return userId ?? undefined;
+}
+
+// Clerk → Convex user sync. Endpoint configured in the Clerk dashboard as
+// https://<deployment>.convex.site/auth
+http.route({
+  path: "/auth",
+  method: "POST",
+  handler: httpAction(handleClerkWebhook),
+});
 
 // --- Server tools (webhooks the ElevenLabs agent calls mid-conversation) --
 
@@ -23,8 +52,10 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const body = await request.json();
     const bedrooms: string | undefined = body.bedrooms;
+    const conversationId: string | undefined = body.conversation_id;
 
-    const property = await ctx.runQuery(internal.properties.currentInternal, {});
+    const userId = await resolveOwner(ctx, conversationId);
+    const property = await ctx.runQuery(internal.properties.currentInternal, { userId });
     const unit = bedrooms
       ? property.units.find((u: { bedrooms: string }) => u.bedrooms === bedrooms)
       : undefined;
@@ -71,7 +102,8 @@ http.route({
       return Response.json({ error: "missing conversation_id" }, { status: 400 });
     }
 
-    const property = await ctx.runQuery(internal.properties.currentInternal, {});
+    const userId = await resolveOwner(ctx, conversationId);
+    const property = await ctx.runQuery(internal.properties.currentInternal, { userId });
 
     // Shared with the WhatsApp bot on purpose — see convex/qualifyRules.ts. Two copies of
     // this decision would let the same person be told "yes" on one channel and "no" on the

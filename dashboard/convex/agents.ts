@@ -9,6 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import * as el from "./elevenLabsApi";
 import { RESIDENT_TRIAGE_BLOCK } from "./residentTriage";
+import { currentUser, requireUserId } from "./authz";
 
 // Jessica — premade, American, female, "conversational" use case. Premade rather than a
 // professional clone on purpose: a PVC run at the wrong similarity_boost is what made the
@@ -165,15 +166,62 @@ const DEFAULT_FIRST_MESSAGE =
 
 // --- Reads ----------------------------------------------------------------
 
-/** The dashboard is single-user, so there is exactly one agent row. */
+/**
+ * Signed in (the dashboard: /call, Settings) → the caller's own agent, or null if they
+ * haven't had one created yet (mintToken/saveAgent do that lazily).
+ *
+ * Not signed in (the public landing-page demo) → the one agent that existed before
+ * multi-tenancy, unchanged. That row now belongs to a real user (see the migration this
+ * shipped with) but is also the demo's fixed, always-on stand-in — nobody's dashboard data
+ * leaks here, since a query with no identity can only ever reach this branch.
+ */
 export const current = query({
   args: {},
-  handler: (ctx) => ctx.db.query("agents").first(),
+  handler: async (ctx) => {
+    const user = await currentUser(ctx);
+    if (!user) {
+      const identity = await ctx.auth.getUserIdentity();
+      if (identity) return null; // signed in, just no user row synced yet
+      return ctx.db.query("agents").first();
+    }
+    return ctx.db
+      .query("agents")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .first();
+  },
 });
 
+/**
+ * `userId` undefined means "resolve the pre-multi-tenancy fallback" — the same one `current`
+ * above falls back to for anonymous callers. Every mid-call tool webhook (convex/http.ts)
+ * that can't yet tell which user a call belongs to goes through this same fallback, so a
+ * phone call or a landing-page demo behaves exactly as it did before this migration.
+ */
 export const currentInternal = internalQuery({
+  args: { userId: v.optional(v.id("users")) },
+  handler: (ctx, args) => {
+    const userId = args.userId;
+    if (!userId) return ctx.db.query("agents").first();
+    return ctx.db
+      .query("agents")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+  },
+});
+
+/**
+ * Whoever owns the pre-multi-tenancy agent — the same row `current`/`currentInternal` fall
+ * back to for an unresolvable caller. Doubles as "the template": every brand-new user is
+ * bootstrapped as a copy of this account's agent, property, and knowledge base (see
+ * agents.ensure), so a fresh sign-up sees the same working demo everyone always has, not a
+ * blank slate with an empty knowledge base.
+ */
+export const templateOwnerId = internalQuery({
   args: {},
-  handler: (ctx) => ctx.db.query("agents").first(),
+  handler: async (ctx) => {
+    const agent = await ctx.db.query("agents").first();
+    return agent?.userId;
+  },
 });
 
 export const voices = action({
@@ -195,8 +243,13 @@ const TOOL_DEFS = (siteUrl: string): el.ToolDefinition[] => [
       "a standalone question like 'what's the rent for a 2BR' or 'do you allow pets', even " +
       "before you've gathered the five qualification fields.",
     url: `${siteUrl}/tools/check-availability`,
+    // conversation_id isn't required from the model — it's a dynamic_variable the platform
+    // fills in regardless — but declaring it is what lets the webhook resolve *whose*
+    // property this is. Without it every "what's the rent" question answered whichever
+    // property happened to be first in the database, no matter who the agent belonged to.
     required: [],
     properties: {
+      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
       bedrooms: {
         type: "string",
         description:
@@ -364,7 +417,7 @@ export const ensureTools = internalAction({
 
 // --- Writes ---------------------------------------------------------------
 
-/** Creates the agent on first run, updates it thereafter. Safe to call repeatedly. */
+/** Creates the caller's own agent on first run, updates it thereafter. Safe to call repeatedly. */
 export const saveAgent = action({
   args: {
     name: v.optional(v.string()),
@@ -373,10 +426,16 @@ export const saveAgent = action({
     voiceId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<string> => {
-    const existing = await ctx.runQuery(internal.agents.currentInternal, {});
+    const userId = await requireUserId(ctx);
+    // A no-op if this user already has an agent. Guarantees that even someone who opens
+    // Settings and hits Save before ever placing a call still starts from the same cloned
+    // template (property + knowledge base included) as everyone else — not a bare prompt with
+    // nothing behind it.
+    await ctx.runAction(internal.agents.ensure, { userId });
+    const existing = await ctx.runQuery(internal.agents.currentInternal, { userId });
     const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
       internal.docs.syncedEntries,
-      {},
+      { userId },
     );
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
 
@@ -397,6 +456,7 @@ export const saveAgent = action({
       : (await el.createAgent(config)).agent_id;
 
     await ctx.runMutation(internal.agents.upsert, {
+      userId,
       elevenLabsAgentId,
       name: config.name,
       prompt: config.prompt,
@@ -409,18 +469,18 @@ export const saveAgent = action({
 });
 
 /**
- * Re-attaches the current set of synced docs to the agent. Called after a doc finishes
- * indexing or is deleted; a no-op when no agent exists yet.
+ * Re-attaches one user's current set of synced docs to their agent. Called after a doc
+ * finishes indexing or is deleted; a no-op when that user has no agent yet.
  */
 export const pushKnowledgeBase = internalAction({
-  args: {},
-  handler: async (ctx): Promise<void> => {
-    const agent = await ctx.runQuery(internal.agents.currentInternal, {});
+  args: { userId: v.id("users") },
+  handler: async (ctx, args): Promise<void> => {
+    const agent = await ctx.runQuery(internal.agents.currentInternal, { userId: args.userId });
     if (!agent) return;
 
     const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
       internal.docs.syncedEntries,
-      {},
+      { userId: args.userId },
     );
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
     await el.updateAgent(agent.elevenLabsAgentId, {
@@ -440,14 +500,24 @@ export const pushKnowledgeBase = internalAction({
  * Mints a short-lived WebRTC token. This is the only ElevenLabs call on the hot path of
  * starting a call, and the browser talks to ElevenLabs directly from here on — audio never
  * transits Convex.
+ *
+ * Signed in (the dashboard) → the caller's own agent, created on first call. Not signed in
+ * (the public landing-page demo) → the pre-multi-tenancy fallback agent, exactly as before
+ * this migration — see agents.current for the same branch on the read side.
  */
 export const mintToken = action({
   args: {},
   handler: async (ctx): Promise<{ token: string; agentId: string }> => {
-    let agent = await ctx.runQuery(internal.agents.currentInternal, {});
-    if (!agent) {
-      await ctx.runAction(internal.agents.ensure, {});
-      agent = await ctx.runQuery(internal.agents.currentInternal, {});
+    const identity = await ctx.auth.getUserIdentity();
+    const userId = identity
+      ? (await ctx.runQuery(internal.users.byClerkId, { clerkId: identity.subject }))?._id
+      : undefined;
+    if (identity && !userId) throw new Error("User record not found — try again in a moment.");
+
+    let agent = await ctx.runQuery(internal.agents.currentInternal, { userId });
+    if (!agent && userId) {
+      await ctx.runAction(internal.agents.ensure, { userId });
+      agent = await ctx.runQuery(internal.agents.currentInternal, { userId });
     }
     if (!agent) throw new Error("Could not create an agent.");
 
@@ -456,38 +526,78 @@ export const mintToken = action({
   },
 });
 
+/** Creates the default Emily agent for a user who doesn't have one yet. */
+/**
+ * Bootstraps a brand-new user with the exact same starting point every user has always had:
+ * a copy of the template's property, knowledge base, and agent config (prompt, voice, first
+ * message) — see templateOwnerId. Falls back to the coded LEASING_PROMPT/DEFAULT_* constants
+ * only when there is truly no template to copy from (a from-scratch install, before any agent
+ * has ever existed).
+ */
 export const ensure = internalAction({
-  args: {},
-  handler: async (ctx): Promise<void> => {
-    const existing = await ctx.runQuery(internal.agents.currentInternal, {});
+  args: { userId: v.id("users") },
+  handler: async (ctx, args): Promise<void> => {
+    const existing = await ctx.runQuery(internal.agents.currentInternal, { userId: args.userId });
     if (existing) return;
+
+    // Convex queries can't return `undefined` over the ctx.runQuery boundary — it comes back
+    // as `null` here, so this normalizes back to `undefined` for the mutations below, which
+    // declare templateUserId as v.optional (translating to `T | undefined` in TS, not `| null`).
+    const templateUserId = (await ctx.runQuery(internal.agents.templateOwnerId, {})) ?? undefined;
+    const template = templateUserId
+      ? await ctx.runQuery(internal.agents.currentInternal, { userId: templateUserId })
+      : null;
+
+    // Cloning the property first, then the docs, matters: syncPropertyDoc (scheduled by the
+    // property clone) and the doc clone both write into this user's docs table, and the doc
+    // clone skips anything already there so it never fights the auto-generated property doc.
+    await ctx.runMutation(internal.properties.cloneForUser, {
+      userId: args.userId,
+      templateUserId,
+    });
+    await ctx.runMutation(internal.docs.cloneDefaultsForUser, {
+      userId: args.userId,
+      templateUserId,
+    });
+
+    // The cloned docs above are only scheduled to sync, not yet indexed — same as a doc saved
+    // by hand, the agent starts with an empty knowledge base and pushKnowledgeBase re-attaches
+    // it automatically once each one finishes (see docs.pollRagIndex).
     const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
       internal.docs.syncedEntries,
-      {},
+      { userId: args.userId },
     );
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
+
+    const name = template?.name ?? "Leasing receptionist";
+    const prompt = template?.prompt ?? LEASING_PROMPT;
+    const firstMessage = template?.firstMessage ?? DEFAULT_FIRST_MESSAGE;
+    const voiceId = template?.voiceId ?? DEFAULT_VOICE_ID;
+
     const created = await el.createAgent({
-      name: "Leasing receptionist",
-      prompt: LEASING_PROMPT,
-      firstMessage: DEFAULT_FIRST_MESSAGE,
-      voiceId: DEFAULT_VOICE_ID,
+      name,
+      prompt,
+      firstMessage,
+      voiceId,
       knowledgeBase,
       toolIds,
       voice: VOICE_TUNING,
       turn: TURN_TUNING,
     });
     await ctx.runMutation(internal.agents.upsert, {
+      userId: args.userId,
       elevenLabsAgentId: created.agent_id,
-      name: "Leasing receptionist",
-      prompt: LEASING_PROMPT,
-      firstMessage: DEFAULT_FIRST_MESSAGE,
-      voiceId: DEFAULT_VOICE_ID,
+      name,
+      prompt,
+      firstMessage,
+      voiceId,
     });
   },
 });
 
 export const upsert = internalMutation({
   args: {
+    userId: v.id("users"),
     elevenLabsAgentId: v.string(),
     name: v.string(),
     prompt: v.string(),
@@ -495,7 +605,10 @@ export const upsert = internalMutation({
     voiceId: v.string(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db.query("agents").first();
+    const existing = await ctx.db
+      .query("agents")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
     const row = { ...args, updatedAt: Date.now() };
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("agents", row);

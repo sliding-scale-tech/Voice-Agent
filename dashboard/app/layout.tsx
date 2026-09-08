@@ -1,9 +1,10 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/ui/themes";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
-import { AppSidebar } from "@/components/app-sidebar";
-import { PageTransition } from "@/components/page-transition";
+import { AppChrome } from "@/components/app-chrome";
 import { ToastProvider } from "@/components/toast";
 
 const geistSans = Geist({
@@ -29,16 +30,26 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <ConvexClientProvider>
-          <ToastProvider>
-            <AppSidebar />
-            <main className="min-h-dvh px-4 py-6 pb-24 sm:px-6 sm:py-8 lg:pb-8 lg:pl-64">
-              <div className="mx-auto max-w-6xl lg:pl-10 lg:pr-6">
-                <PageTransition>{children}</PageTransition>
-              </div>
-            </main>
-          </ToastProvider>
-        </ConvexClientProvider>
+        <ClerkProvider
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
+          afterSignOutUrl="/"
+          signInFallbackRedirectUrl="/call"
+          signUpFallbackRedirectUrl="/call"
+          appearance={{
+            theme: shadcn,
+            variables: {
+              colorPrimary: "#2563EB",
+              borderRadius: "0.75rem",
+            },
+          }}
+        >
+          <ConvexClientProvider>
+            <ToastProvider>
+              <AppChrome>{children}</AppChrome>
+            </ToastProvider>
+          </ConvexClientProvider>
+        </ClerkProvider>
       </body>
     </html>
   );

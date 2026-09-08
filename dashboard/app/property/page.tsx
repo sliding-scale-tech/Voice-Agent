@@ -1,8 +1,20 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Plus, X, Trash2, PawPrint, CalendarClock } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  BedDouble,
+  Building2,
+  CalendarDays,
+  Check,
+  ListChecks,
+  Minus,
+  PawPrint,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useToast } from "@/components/toast";
@@ -11,20 +23,16 @@ type Unit = { bedrooms: string; rentMin: number; rentMax: number; available: boo
 
 const EMPTY_UNIT: Unit = { bedrooms: "", rentMin: 0, rentMax: 0, available: true };
 const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring";
+  "h-11 w-full rounded-lg border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20";
 
 function parseUnitsCsv(text: string): Unit[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length === 0) return [];
-
-  const header = lines[0].toLowerCase();
-  const hasHeader = header.includes("bedroom");
-  const dataLines = hasHeader ? lines.slice(1) : lines;
-
-  return dataLines
-    .filter((line) => line.trim().length > 0)
+  const hasHeader = lines[0].toLowerCase().includes("bedroom");
+  return (hasHeader ? lines.slice(1) : lines)
+    .filter((line) => line.trim())
     .map((line) => {
-      const [bedrooms, rentMin, rentMax, available] = line.split(",").map((c) => c.trim());
+      const [bedrooms, rentMin, rentMax, available] = line.split(",").map((column) => column.trim());
       return {
         bedrooms: bedrooms ?? "",
         rentMin: Number(rentMin) || 0,
@@ -32,7 +40,23 @@ function parseUnitsCsv(text: string): Unit[] {
         available: available === undefined ? true : /^(true|yes|1)$/i.test(available),
       };
     })
-    .filter((u) => u.bedrooms.length > 0);
+    .filter((unit) => unit.bedrooms.length > 0);
+}
+
+function formatUnitType(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "studio") return "Studio";
+  const match = normalized.match(/^(\d+)\s*(?:br|bed|bedroom)?/);
+  if (match) return `${match[1]} Bedroom${match[1] === "1" ? "" : "s"}`;
+  return value;
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 export default function PropertyPage() {
@@ -50,6 +74,8 @@ export default function PropertyPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
 
+  /* The Convex query arrives after the first render; hydrate this editable draft once. */
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!property || hydrated) return;
     setName(property.name);
@@ -58,33 +84,44 @@ export default function PropertyPage() {
     setMoveInWindowDays(property.moveInWindowDays);
     setHydrated(true);
   }, [property, hydrated]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const restoreProperty = () => {
+    if (!property) return;
+    setName(property.name);
+    setUnits(property.units);
+    setPetsAllowed(property.petsAllowed);
+    setMoveInWindowDays(property.moveInWindowDays);
+  };
 
   const handleSave = async () => {
     setStatus("saving");
-    await save({ name, units, petsAllowed, moveInWindowDays });
-    setStatus("idle");
-    toast("Property saved — knowledge base is re-syncing");
+    try {
+      await save({ name, units, petsAllowed, moveInWindowDays });
+      toast("Property saved — knowledge base is re-syncing");
+    } finally {
+      setStatus("idle");
+    }
   };
 
   const handleModalSave = (unit: Unit) => {
-    setUnits((prev) => {
-      if (editingIndex === null) return prev;
-      if (editingIndex === -1) return [...prev, unit];
-      return prev.map((u, i) => (i === editingIndex ? unit : u));
+    setUnits((current) => {
+      if (editingIndex === null) return current;
+      if (editingIndex === -1) return [...current, unit];
+      return current.map((existing, index) => (index === editingIndex ? unit : existing));
     });
     setEditingIndex(null);
   };
 
   const handleDelete = (index: number) => {
-    setUnits((prev) => prev.filter((_, i) => i !== index));
+    setUnits((current) => current.filter((_, unitIndex) => unitIndex !== index));
     setEditingIndex(null);
   };
 
   const handleCsvUpload = async (file: File) => {
     setCsvError(null);
     try {
-      const text = await file.text();
-      const parsed = parseUnitsCsv(text);
+      const parsed = parseUnitsCsv(await file.text());
       if (parsed.length === 0) {
         setCsvError("No valid rows found. Expect columns: bedrooms,rentMin,rentMax,available");
         return;
@@ -99,119 +136,171 @@ export default function PropertyPage() {
   };
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Property</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+    <div className="space-y-7 pb-10">
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Property</h1>
+        <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
           These rules drive the agent&apos;s qualification check on every call — they are not
           decided by the AI, they are read straight from here.
         </p>
-      </div>
+      </header>
 
-      <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
-        <label className="block space-y-1.5">
-          <span className="text-sm font-medium">Property name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7">
+        <div className="mb-6 flex items-center gap-2">
+          <Building2 className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-base font-semibold">Property profile</h2>
+        </div>
+
+        <label className="block">
+          <span className="mb-2 block text-xs text-muted-foreground">Property name</span>
+          <input value={name} onChange={(event) => setName(event.target.value)} className={inputClass} />
         </label>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="flex items-center gap-2 rounded-lg border border-input px-3 py-2.5 text-sm">
-            <input
-              type="checkbox"
-              checked={petsAllowed}
-              onChange={(e) => setPetsAllowed(e.target.checked)}
-              className="h-4 w-4"
-            />
-            <PawPrint className="h-4 w-4 text-muted-foreground" />
-            Pets allowed
-          </label>
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div className="flex min-h-16 items-center rounded-xl border border-border px-4">
+            <PawPrint className="mr-3 h-5 w-5 text-blue-500" />
+            <span className="text-sm font-medium">Pets allowed</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={petsAllowed}
+              onClick={() => setPetsAllowed((current) => !current)}
+              className={`ml-auto flex h-6 w-11 items-center rounded-full p-0.5 transition-colors ${
+                petsAllowed ? "bg-primary" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm transition-transform ${
+                  petsAllowed ? "translate-x-5 text-primary" : "translate-x-0 text-transparent"
+                }`}
+              >
+                <Check className="h-3 w-3" />
+              </span>
+            </button>
+            <span className="ml-2 w-7 text-sm">{petsAllowed ? "Yes" : "No"}</span>
+          </div>
 
-          <label className="flex items-center gap-2 rounded-lg border border-input px-3 py-2.5 text-sm">
-            <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="shrink-0">Move-in window</span>
-            <input
-              type="number"
-              value={moveInWindowDays}
-              onChange={(e) => setMoveInWindowDays(Number(e.target.value))}
-              className="w-16 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus:border-ring"
-            />
-            <span className="text-muted-foreground">days</span>
-          </label>
+          <div className="flex min-h-16 items-center rounded-xl border border-border px-4">
+            <CalendarDays className="mr-3 h-5 w-5 text-muted-foreground" />
+            <span className="text-sm font-medium">Move-in window</span>
+            <div className="ml-auto flex h-9 items-center overflow-hidden rounded-lg border border-border">
+              <button
+                type="button"
+                aria-label="Decrease move-in window"
+                onClick={() => setMoveInWindowDays((days) => Math.max(0, days - 1))}
+                className="flex h-full w-9 items-center justify-center text-muted-foreground hover:bg-accent"
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </button>
+              <input
+                type="number"
+                value={moveInWindowDays}
+                onChange={(event) => setMoveInWindowDays(Math.max(0, Number(event.target.value)))}
+                className="h-full w-12 border-x border-border bg-card text-center text-sm tabular-nums outline-none"
+              />
+              <button
+                type="button"
+                aria-label="Increase move-in window"
+                onClick={() => setMoveInWindowDays((days) => days + 1)}
+                className="flex h-full w-9 items-center justify-center text-muted-foreground hover:bg-accent"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <span className="ml-2 text-sm text-muted-foreground">days</span>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium">Units</h2>
-          <div className="flex gap-2">
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <ListChecks className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-base font-semibold">Unit inventory</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <input
               ref={fileInputRef}
               type="file"
               accept=".csv,text/csv"
               className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
+              onChange={(event) => {
+                const file = event.target.files?.[0];
                 if (file) void handleCsvUpload(file);
               }}
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-xs hover:bg-accent"
+              className="flex h-10 items-center gap-2 rounded-lg border border-input bg-card px-4 text-sm font-medium hover:bg-accent"
             >
-              <Upload className="h-3.5 w-3.5" />
-              Upload CSV
+              <Upload className="h-4 w-4" />
+              Import CSV
             </button>
             <button
               onClick={() => setEditingIndex(-1)}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              className="flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-4 w-4" />
               Add unit
             </button>
           </div>
         </div>
 
-        {csvError && <p className="text-xs text-destructive">{csvError}</p>}
-        <p className="text-xs text-muted-foreground">
+        <p className="mt-4 text-xs text-muted-foreground">
           CSV columns: bedrooms, rentMin, rentMax, available — uploading replaces the table below.
         </p>
+        {csvError ? <p className="mt-2 text-xs text-destructive">{csvError}</p> : null}
 
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <table className="w-full border-collapse text-sm">
+        <div className="mt-5 overflow-x-auto rounded-xl border border-border">
+          <table className="w-full min-w-[620px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Bedrooms</th>
-                <th className="px-4 py-3 font-medium">Rent min</th>
-                <th className="px-4 py-3 font-medium">Rent max</th>
-                <th className="px-4 py-3 font-medium">Available</th>
+              <tr className="border-b border-border bg-muted/45 text-left text-[11px] tracking-wide text-muted-foreground uppercase">
+                <th className="px-6 py-3 font-medium">Unit type</th>
+                <th className="px-5 py-3 font-medium">Monthly rent (min)</th>
+                <th className="px-5 py-3 font-medium">Monthly rent (max)</th>
+                <th className="px-5 py-3 font-medium">Availability</th>
               </tr>
             </thead>
             <tbody>
-              {units.length === 0 && (
+              {units.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
-                    No units yet — add one or upload a CSV.
+                  <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
+                    No units yet — add one or import a CSV.
                   </td>
                 </tr>
-              )}
-              {units.map((unit, i) => (
+              ) : null}
+              {units.map((unit, index) => (
                 <motion.tr
-                  key={i}
+                  key={`${unit.bedrooms}-${index}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  onClick={() => setEditingIndex(i)}
-                  className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40"
+                  onClick={() => setEditingIndex(index)}
+                  className="cursor-pointer border-b border-border last:border-0 hover:bg-blue-50/40"
                 >
-                  <td className="px-4 py-3 font-medium">{unit.bedrooms}</td>
-                  <td className="px-4 py-3 tabular-nums">${unit.rentMin}</td>
-                  <td className="px-4 py-3 tabular-nums">${unit.rentMax}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-6 py-4">
+                    <span className="inline-flex items-center gap-3 font-semibold">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                        <BedDouble className="h-4 w-4" />
+                      </span>
+                      {formatUnitType(unit.bedrooms)}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 tabular-nums">{formatCurrency(unit.rentMin)}</td>
+                  <td className="px-5 py-4 tabular-nums">{formatCurrency(unit.rentMax)}</td>
+                  <td className="px-5 py-4">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        unit.available ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                        unit.available
+                          ? "bg-emerald-50 text-emerald-600"
+                          : "bg-muted text-muted-foreground"
                       }`}
                     >
-                      {unit.available ? "Yes" : "No"}
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          unit.available ? "bg-emerald-500" : "bg-muted-foreground"
+                        }`}
+                      />
+                      {unit.available ? "Available" : "Unavailable"}
                     </span>
                   </td>
                 </motion.tr>
@@ -219,20 +308,27 @@ export default function PropertyPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div className="flex items-center gap-3">
+      <div className="flex justify-end gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm">
+        <button
+          type="button"
+          onClick={restoreProperty}
+          className="rounded-lg border border-input bg-card px-5 py-2.5 text-sm font-medium hover:bg-accent"
+        >
+          Cancel
+        </button>
         <button
           onClick={handleSave}
           disabled={status === "saving"}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {status === "saving" ? "Saving…" : "Save property"}
         </button>
       </div>
 
       <AnimatePresence>
-        {editingIndex !== null && (
+        {editingIndex !== null ? (
           <UnitModal
             unit={editingIndex === -1 ? EMPTY_UNIT : units[editingIndex]}
             isNew={editingIndex === -1}
@@ -240,7 +336,7 @@ export default function PropertyPage() {
             onDelete={editingIndex >= 0 ? () => handleDelete(editingIndex) : undefined}
             onClose={() => setEditingIndex(null)}
           />
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );
@@ -269,80 +365,83 @@ function UnitModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
       onClick={onClose}
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 8 }}
-        transition={{ type: "spring", damping: 25, stiffness: 350 }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm space-y-4 rounded-2xl border border-border bg-card p-5 shadow-xl"
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{isNew ? "Add unit" : "Edit unit"}</h2>
+        <div className="flex items-center justify-between border-b border-border px-6 py-5">
+          <h2 className="text-lg font-bold">{isNew ? "Add unit" : "Edit unit"}</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent">
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         </div>
-
-        <label className="block space-y-1.5">
-          <span className="text-sm font-medium">Bedrooms</span>
-          <input
-            value={bedrooms}
-            onChange={(e) => setBedrooms(e.target.value)}
-            placeholder="studio, 1br, 2br, 3br+"
-            className={inputClass}
-          />
-        </label>
-
-        <div className="flex gap-3">
-          <label className="block flex-1 space-y-1.5">
-            <span className="text-sm font-medium">Rent min</span>
+        <div className="space-y-5 px-6 py-5">
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium">Unit type</span>
             <input
-              type="number"
-              value={rentMin}
-              onChange={(e) => setRentMin(Number(e.target.value))}
+              value={bedrooms}
+              onChange={(event) => setBedrooms(event.target.value)}
+              placeholder="studio, 1br, 2br, 3br+"
               className={inputClass}
             />
           </label>
-          <label className="block flex-1 space-y-1.5">
-            <span className="text-sm font-medium">Rent max</span>
+          <div className="grid grid-cols-2 gap-4">
+            <label>
+              <span className="mb-2 block text-sm font-medium">Rent min</span>
+              <input
+                type="number"
+                value={rentMin}
+                onChange={(event) => setRentMin(Number(event.target.value))}
+                className={inputClass}
+              />
+            </label>
+            <label>
+              <span className="mb-2 block text-sm font-medium">Rent max</span>
+              <input
+                type="number"
+                value={rentMax}
+                onChange={(event) => setRentMax(Number(event.target.value))}
+                className={inputClass}
+              />
+            </label>
+          </div>
+          <label className="flex items-center gap-2 text-sm font-medium">
             <input
-              type="number"
-              value={rentMax}
-              onChange={(e) => setRentMax(Number(e.target.value))}
-              className={inputClass}
+              type="checkbox"
+              checked={available}
+              onChange={(event) => setAvailable(event.target.checked)}
+              className="h-4 w-4 accent-blue-600"
             />
+            Available
           </label>
         </div>
-
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={available} onChange={(e) => setAvailable(e.target.checked)} />
-          Available
-        </label>
-
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center border-t border-border bg-muted/30 px-6 py-4">
           {onDelete ? (
             <button
               onClick={onDelete}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4" />
               Delete
             </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-lg border border-input px-4 py-2 text-sm hover:bg-accent">
+          ) : null}
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-input bg-card px-4 py-2 text-sm font-medium hover:bg-accent"
+            >
               Cancel
             </button>
             <button
               onClick={() => onSave({ bedrooms, rentMin, rentMax, available })}
               disabled={!bedrooms.trim()}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               Save
             </button>
