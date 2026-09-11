@@ -194,7 +194,7 @@ export default defineSchema({
   //
   // `category` is deliberately v.string() and not a union: the agent fills it freehand, and a
   // single off-script value ("plumbing" instead of "maintenance") against a union would throw
-  // inside the mutation, fail the tool call, and leave Sara telling the caller that something
+  // inside the mutation, fail the tool call, and leave Sarah telling the caller that something
   // broke mid-call. Normalize for display, store what was said.
   tenantIssues: defineTable({
     // Resolved from the call's conversations row where possible (see tenants.logIssue) and

@@ -24,7 +24,7 @@ export default function SettingsPage() {
 
   // WhatsApp keeps its own prompt. The two channels genuinely need different instructions --
   // the voice prompt names tools that do not exist on WhatsApp, and the WhatsApp prompt tells
-  // the model to fill JSON fields, which would make Sara read JSON aloud on a call.
+  // the model to fill JSON fields, which would make Sarah read JSON aloud on a call.
   const waConfig = useQuery(api.whatsapp.config);
   const saveWaConfig = useMutation(api.whatsapp.saveConfig);
   const [waStatus, setWaStatus] = useState<"idle" | "saving">("idle");
@@ -128,14 +128,14 @@ export default function SettingsPage() {
         {/* The live prompt lives in the database, not in the code — saveAgent resolves
             args.prompt ?? existing.prompt, so editing the constant in agents.ts does nothing to
             an agent that already exists. This button is how the resident-triage instructions
-            actually reach Sara. It appends rather than replaces so hand edits made right here
+            actually reach Sarah. It appends rather than replaces so hand edits made right here
             in the textarea aren't silently thrown away. */}
         {!prompt.includes("RESIDENT CALLS") && (
           <div className="rounded-lg border border-dashed border-border p-3">
             <div className="text-sm font-medium">Resident triage is not in this prompt yet</div>
             <p className="mt-1 text-xs text-muted-foreground">
               Adds the severity scale and the rules for handling existing residents. It only
-              appends — if your prompt still tells Sara to escalate every tenant issue, delete
+              appends — if your prompt still tells Sarah to escalate every tenant issue, delete
               that line by hand above, then save.
             </p>
             <button
@@ -234,7 +234,7 @@ ${RESIDENT_TRIAGE_BLOCK}`)}
 
       <Section icon={MessageCircle} title="WhatsApp prompt">
         <p className="-mt-2 text-sm text-muted-foreground">
-          Sara&apos;s instructions when she is texting on WhatsApp. Separate from the voice
+          Sarah&apos;s instructions when she is texting on WhatsApp. Separate from the voice
           prompt above on purpose: that one tells her to call tools like{" "}
           <code className="font-mono text-xs">check_qualification</code> and end the call, none
           of which exist in a chat, and this one tells her to fill in structured fields, which
@@ -313,7 +313,7 @@ ${RESIDENT_TRIAGE_BLOCK}`)}
       <Section icon={AlertTriangle} title="Severity scale">
         <p className="-mt-2 text-sm text-muted-foreground">
           Every resident call on the Tenants page gets a 1–10 severity. Unlike lead scoring, this one
-          is Sara&apos;s judgment during the call — these exact bands are written into her
+          is Sarah&apos;s judgment during the call — these exact bands are written into her
           instructions from the same source as this list, so the two can never drift apart. You
           can override any score on the Tenants page; the original is kept.
         </p>
@@ -332,7 +332,7 @@ ${RESIDENT_TRIAGE_BLOCK}`)}
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Sara scores the issue, not the caller — a calm person with no heat is a 9, someone
+          Sarah scores the issue, not the caller — a calm person with no heat is a 9, someone
           furious about a parking space is still a 3. Anything 8 or above is also escalated.
         </p>
       </Section>

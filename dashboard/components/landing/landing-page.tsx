@@ -35,7 +35,7 @@ export function LandingPage({ className }: { className?: string }) {
           <div className="eyebrow">
             <span className="eyebrow-dot" /> Live after hours leasing demo
           </div>
-          <h1>Watch Sara answer a renter call</h1>
+          <h1>Watch Sarah answer a renter call</h1>
           <p className="hero-copy">
             A calm, realistic walkthrough of how LeaseOps answers, qualifies, and books a tour while your leasing team
             is offline.
@@ -69,8 +69,11 @@ export function LandingPage({ className }: { className?: string }) {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                         Chat with me on LinkedIn
+                        Chat with me on LinkedIn
                       </a>
+                    </li>
+                    <li>
+                      <Link href="/sign-in">Login</Link>
                     </li>
                   </ul>
                 </nav>

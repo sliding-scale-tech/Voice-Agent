@@ -170,7 +170,7 @@ function Brand({
         S
       </div>
       <div className="min-w-0 flex-1 leading-tight">
-        <div className="text-sm font-semibold text-sidebar-foreground">Sara</div>
+        <div className="text-sm font-semibold text-sidebar-foreground">Sarah</div>
         <div className="text-[11px] text-sidebar-foreground/50">Leasing Assistant</div>
       </div>
       {onAccountClick ? (

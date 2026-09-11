@@ -21,7 +21,7 @@ export function AuthShell({
           <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-lg font-bold text-primary-foreground">
             S
           </div>
-          <p className="mt-3 text-sm font-semibold text-foreground">Sara</p>
+          <p className="mt-3 text-sm font-semibold text-foreground">Sarah</p>
           <p className="text-[11px] text-muted-foreground">Leasing Assistant</p>
         </div> */}
 
