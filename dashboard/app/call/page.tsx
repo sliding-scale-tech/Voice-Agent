@@ -125,7 +125,7 @@ function CallScreen() {
   }, [connected, getId, attachElevenLabsId]);
 
   // The agent's own display name is per-user (each account has its own agent, possibly its own
-  // name) — "Sara - Leasing receptionist" becomes just "Sara" for the conversational line,
+  // name) — "Sarah - Leasing receptionist" becomes just "Sarah" for the conversational line,
   // rather than hardcoding a name that would be wrong for anyone who renamed their agent.
   const firstName = agent?.name?.split(/[-–—]/)[0]?.trim() || "your agent";
 

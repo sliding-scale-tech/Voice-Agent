@@ -77,7 +77,7 @@ export default function DocsPage() {
 
       {docs?.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center text-sm text-muted-foreground">
-          No knowledge yet. Add an answer so Sara can use it during calls.
+          No knowledge yet. Add an answer so Sarah can use it during calls.
         </div>
       ) : null}
 
@@ -217,14 +217,11 @@ function KnowledgeModal({
               <Sparkles className="absolute top-4 left-3 h-4 w-4 text-muted-foreground-subtle" />
               <textarea
                 value={body}
-                onChange={(event) => setBody(event.target.value.slice(0, 3000))}
+                onChange={(event) => setBody(event.target.value)}
                 rows={7}
                 placeholder="Write the answer the way you would say it out loud."
                 className="w-full resize-none rounded-xl border border-input bg-card px-10 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground-subtle focus:ring-2 focus:ring-ring/20"
               />
-              <span className="absolute right-3 bottom-3 text-[11px] tabular-nums text-muted-foreground-subtle">
-                {body.length} / 3000
-              </span>
             </div>
           </label>
 

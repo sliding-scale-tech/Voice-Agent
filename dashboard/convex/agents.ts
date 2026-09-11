@@ -64,7 +64,7 @@ const TURN_TUNING: el.TurnTuning = {
 };
 
 
-const LEASING_PROMPT = `You are Sara, the leasing receptionist for Maple Court Apartments, answering by phone or
+const LEASING_PROMPT = `You are Sarah, the leasing receptionist for Maple Court Apartments, answering by phone or
 voice chat, 24/7. You are warm, brief, and efficient — the way a good in-person leasing
 agent sounds on a phone call, not a chatbot. Introduce yourself by name only in your first
 message, not repeatedly. Never mention that you are AI unless directly asked; if asked
@@ -162,7 +162,7 @@ Negotiate rent. Discuss lease terms or legal questions. Try to resolve a mainten
 yourself. Guess at facts you don't have. Speak a language other than English.`;
 
 const DEFAULT_FIRST_MESSAGE =
-  "Thanks for calling Maple Court Apartments, this is Sara! Are you calling about renting an apartment, or something else?";
+  "Thanks for calling Maple Court Apartments, this is Sarah! Are you calling about renting an apartment, or something else?";
 
 // --- Reads ----------------------------------------------------------------
 
@@ -440,7 +440,7 @@ export const saveAgent = action({
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
 
     const config: el.AgentConfig = {
-      name: args.name ?? existing?.name ?? "Sara",
+      name: args.name ?? existing?.name ?? "Sarah",
       prompt: args.prompt ?? existing?.prompt ?? LEASING_PROMPT,
       firstMessage: args.firstMessage ?? existing?.firstMessage ?? DEFAULT_FIRST_MESSAGE,
       voiceId: args.voiceId ?? existing?.voiceId ?? DEFAULT_VOICE_ID,
@@ -526,7 +526,7 @@ export const mintToken = action({
   },
 });
 
-/** Creates the default Sara agent for a user who doesn't have one yet. */
+/** Creates the default Sarah agent for a user who doesn't have one yet. */
 /**
  * Bootstraps a brand-new user with the exact same starting point every user has always had:
  * a copy of the template's property, knowledge base, and agent config (prompt, voice, first
@@ -569,7 +569,7 @@ export const ensure = internalAction({
     );
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
 
-    const name = template?.name ?? "Sara";
+    const name = template?.name ?? "Sarah";
     const prompt = template?.prompt ?? LEASING_PROMPT;
     const firstMessage = template?.firstMessage ?? DEFAULT_FIRST_MESSAGE;
     const voiceId = template?.voiceId ?? DEFAULT_VOICE_ID;
