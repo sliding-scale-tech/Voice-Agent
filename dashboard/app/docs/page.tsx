@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useToast } from "@/components/toast";
@@ -58,8 +58,22 @@ export default function DocsPage() {
   const docs = useQuery(api.docs.list);
   const save = useMutation(api.docs.save);
   const remove = useAction(api.docs.remove);
+  const ensureSeeded = useAction(api.agents.ensureSeeded);
   const toast = useToast();
   const [selected, setSelected] = useState<Doc | "new" | null>(null);
+  const seedAttempted = useRef(false);
+
+  // A brand-new team has no agent row yet, so docs.list legitimately returns [] until one of
+  // mintToken / Settings-save / this runs agents.ensure to clone the template's knowledge
+  // base. Firing it here means landing on this tab is enough — no need to start a call first.
+  // Guarded to once per mount: docs is a fresh array reference on every reactive update, and
+  // ensureSeeded, while idempotent server-side, has no reason to be called more than once.
+  useEffect(() => {
+    if (docs?.length === 0 && !seedAttempted.current) {
+      seedAttempted.current = true;
+      void ensureSeeded();
+    }
+  }, [docs, ensureSeeded]);
 
   return (
     <div className="space-y-8 pb-10">

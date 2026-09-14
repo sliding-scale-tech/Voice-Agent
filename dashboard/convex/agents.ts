@@ -291,10 +291,10 @@ export const currentInternal = internalQuery({
 
 /**
  * Whichever team owns the oldest agent — the same row `current`/`currentInternal` fall back to
- * for an unresolvable caller. Doubles as "the template": every brand-new team is bootstrapped
- * as a copy of this one's agent, property, and knowledge base (see agents.ensure), so a fresh
- * sign-up sees the same working demo everyone always has, not a blank slate with an empty
- * knowledge base.
+ * for an unresolvable caller. Doubles as "the template": every brand-new team's agent and
+ * property are bootstrapped as a copy of this one's (see agents.ensure). The knowledge base is
+ * not part of this clone — see docs.DEFAULT_DOCS — so it has no dependency on this org's docs
+ * staying unedited.
  */
 export const templateOrgId = internalQuery({
   args: {},
@@ -672,11 +672,26 @@ export const mintToken = action({
 /** Creates the default Sarah agent for a team that doesn't have one yet. */
 /**
  * Bootstraps a brand-new team with the exact same starting point every account has always had:
- * a copy of the template's property, knowledge base, and agent config (prompt, voice, first
- * message) — see templateOrgId. Falls back to the coded LEASING_PROMPT/DEFAULT_* constants
- * only when there is truly no template to copy from (a from-scratch install, before any agent
- * has ever existed).
+ * a copy of the template's property and agent config (prompt, voice, first message) — see
+ * templateOrgId — plus the fixed DEFAULT_DOCS knowledge base (docs.cloneDefaultsForOrg), which
+ * is coded rather than copied so it exists even before any agent has ever existed. Falls back
+ * to the coded LEASING_PROMPT/DEFAULT_* constants for the agent/property when there is truly no
+ * template to copy from (a from-scratch install).
  */
+/**
+ * Public entry point for the same bootstrap, for a page that wants the clone to happen just
+ * from being visited rather than waiting on mintToken or a Settings save — see convex/docs.ts
+ * list for the case that prompted this (the Knowledge tab showing empty until one of those
+ * two fired). Safe to call on every load: ensure below is a no-op once the org has an agent.
+ */
+export const ensureSeeded = action({
+  args: {},
+  handler: async (ctx): Promise<void> => {
+    const { orgId, userId } = await requireOrgId(ctx);
+    await ctx.runAction(internal.agents.ensure, { orgId, userId });
+  },
+});
+
 export const ensure = internalAction({
   args: { orgId: v.string(), userId: v.id("users") },
   handler: async (ctx, args): Promise<void> => {
@@ -702,7 +717,6 @@ export const ensure = internalAction({
     await ctx.runMutation(internal.docs.cloneDefaultsForOrg, {
       orgId: args.orgId,
       userId: args.userId,
-      templateOrgId,
     });
 
     // The cloned docs above are only scheduled to sync, not yet indexed — same as a doc saved
