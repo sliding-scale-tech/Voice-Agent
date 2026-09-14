@@ -6,15 +6,13 @@ import { Loader2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { TeamGate } from "@/components/team-gate";
+import { isPublicPath } from "@/lib/public-routes";
 import { PageTransition } from "@/components/page-transition";
 
 export function AppChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const isPublicRoute =
-    pathname === "/" ||
-    pathname.startsWith("/sign-in") ||
-    pathname.startsWith("/sign-up") ||
-    pathname.startsWith("/sso-callback");
+  const isPublicRoute = isPublicPath(pathname);
 
   if (isPublicRoute) {
     return <>{children}</>;
@@ -28,7 +26,9 @@ export function AppChrome({ children }: { children: ReactNode }) {
         </div>
       </AuthLoading>
       <Authenticated>
-        <SignedInShell>{children}</SignedInShell>
+        <TeamGate>
+          <SignedInShell>{children}</SignedInShell>
+        </TeamGate>
       </Authenticated>
     </>
   );

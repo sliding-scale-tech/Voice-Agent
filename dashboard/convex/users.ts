@@ -77,6 +77,18 @@ export const removeByClerkId = internalMutation({
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
       .unique();
-    if (existing) await ctx.db.delete(existing._id);
+    if (!existing) return;
+
+    // Delete their membership too. Leaving it behind points a team at a user row that no
+    // longer exists, which reads as "this team has a member" everywhere while being
+    // unreachable by anyone — and it silently blocks re-inviting the same person, since
+    // membership is what "already belongs to another team" checks.
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", existing._id))
+      .collect();
+    for (const membership of memberships) await ctx.db.delete(membership._id);
+
+    await ctx.db.delete(existing._id);
   },
 });

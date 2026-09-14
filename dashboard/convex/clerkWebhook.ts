@@ -63,7 +63,7 @@ export async function handleClerkWebhook(
     case "user.updated": {
       const user = event.data ?? {};
       if (!user.id) return new Response("missing user id", { status: 400 });
-      await ctx.runMutation(internal.users.upsertFromClerk, {
+      const userId = await ctx.runMutation(internal.users.upsertFromClerk, {
         clerkId: user.id,
         email: primaryEmail(user),
         firstName: user.first_name ?? undefined,
@@ -71,21 +71,33 @@ export async function handleClerkWebhook(
         imageUrl: user.image_url ?? undefined,
         lastSignInAt: user.last_sign_in_at ?? undefined,
       });
+      // Every account needs a team before the dashboard means anything. A no-op when they
+      // already have one, and deliberately skipped when a live invitation is waiting for this
+      // address — that sign-up belongs in the inviting team, not a fresh one of its own.
+      await ctx.runMutation(internal.team.ensureTeamForUser, { userId });
       break;
     }
     case "session.created": {
       const session = event.data ?? {};
       const clerkId = session.user_id;
       if (!clerkId) return new Response("missing user id", { status: 400 });
-      await ctx.runMutation(internal.users.upsertFromClerk, {
+      const sessionUserId = await ctx.runMutation(internal.users.upsertFromClerk, {
         clerkId,
         lastSignInAt: session.last_active_at ?? session.created_at ?? Date.now(),
       });
+      // Safety net for accounts that predate this webhook, or whose user.created event was
+      // missed — without it they would sign in to a dashboard with no team behind it.
+      await ctx.runMutation(internal.team.ensureTeamForUser, { userId: sessionUserId });
       break;
     }
     case "user.deleted": {
       const clerkId = event.data?.id;
-      if (clerkId) await ctx.runMutation(internal.users.removeByClerkId, { clerkId });
+      if (clerkId) {
+        // Full teardown, not just the users row: an admin owns their team, and leaving it
+        // behind strands its data and its ElevenLabs agent — and blocks the same person from
+        // ever being invited back, since membership is what "already on a team" checks.
+        await ctx.runAction(internal.team.purgeByClerkId, { clerkId });
+      }
       break;
     }
     default:

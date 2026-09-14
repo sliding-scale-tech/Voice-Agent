@@ -7,9 +7,18 @@ import {
   query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import * as el from "./elevenLabsApi";
 import { RESIDENT_TRIAGE_BLOCK } from "./residentTriage";
-import { currentUser, requireUserId } from "./authz";
+import type { ScreeningQuestion } from "./qualifyRules";
+import {
+  CORE_PLACEHOLDER,
+  SCREENING_PLACEHOLDER,
+  hasUnknownWording,
+  upgradeForScreening,
+} from "./screeningPrompt";
+import { coreBlock } from "./coreQuestions";
+import { currentOrg, requireOrgId } from "./authz";
 
 // Jessica — premade, American, female, "conversational" use case. Premade rather than a
 // professional clone on purpose: a PVC run at the wrong similarity_boost is what made the
@@ -86,13 +95,13 @@ YOUR JOB, IN ORDER:
    Take their answer at face value; there is nothing to check it against. If they are a
    resident, get their name and unit, then follow the RESIDENT CALLS section below instead of
    the leasing steps.
-2. If it's a leasing inquiry, gather exactly five things — no more, no fewer — before
-   deciding anything: unit type/bedroom count wanted, move-in timeline, budget range,
-   whether they have pets (and what kind, if yes), and their name plus a callback number.
-   Ask for these conversationally, one or two at a time, not as an interrogation. If they
-   already told you one in passing, don't ask again.
-3. Once you have all five, call check_qualification with exactly those fields. Do not
-   guess or estimate any of them yourself — the tool applies the actual property rules.
+2. If it's a leasing inquiry, gather everything listed under WHAT TO ASK EVERY LEASING
+   CALLER below before deciding anything, then everything under EXTRA SCREENING QUESTIONS.
+   Both lists are set by this property. Never invent questions of your own.
+3. Once you have all of them, call check_qualification. Send only the fields you were
+   actually told to ask about — leave the rest out entirely rather than guessing at them —
+   plus every extra screening answer in the screening_answers argument. Do not estimate any
+   value yourself; the tool applies the actual property rules.
 4. Speak the tool's result plainly. If it says qualified, offer to book a tour. If it says
    disqualified, say so clearly and kindly, state the real reason (e.g. "this building
    doesn't allow pets" or "our lowest rent is above your budget"), and do NOT offer a tour
@@ -108,6 +117,8 @@ YOUR JOB, IN ORDER:
    happened, or wait for them to hang up first — a call that has done its job should end
    promptly, not linger.
 
+{{CORE_QUESTIONS}}
+
 PACING:
 Move at a natural, brisk pace. Once you have a piece of information, use it and move on —
 don't repeat it back for confirmation unless you genuinely didn't catch it. Don't re-explain
@@ -116,11 +127,15 @@ from the first question onward, not meandering — every turn should either be g
 something you still need or acting on what you already have.
 
 WHAT YOU NEVER DECIDE YOURSELF:
-Qualification is based only on these five fields: unit type, move-in timeline, budget,
-pets, and contact info. Nothing else — not how someone sounds, their name, their accent,
-anything they mention about themselves — ever factors into whether they qualify. If you
-are ever unsure whether someone qualifies, that is what check_qualification is for. Never
-make that call on your own judgment.
+Qualification is based only on what the WHAT TO ASK EVERY LEASING CALLER and EXTRA SCREENING
+QUESTIONS sections list, and nothing else — not how someone sounds, their name,
+their accent, anything they mention about themselves — ever factors into whether they
+qualify. Your job is to report the answers accurately, not to judge them: never decide that
+an answer disqualifies someone, and never skip asking a question because you assume you
+know how it will go. check_qualification makes that call. Never make it on your own
+judgment.
+
+{{SCREENING_QUESTIONS}}
 
 WHEN TO ESCALATE — call the escalate tool, don't try to handle it yourself:
 - They ask to speak to a human, and you haven't already tried once to help — the second
@@ -164,6 +179,71 @@ yourself. Guess at facts you don't have. Speak a language other than English.`;
 const DEFAULT_FIRST_MESSAGE =
   "Thanks for calling Maple Court Apartments, this is Sarah! Are you calling about renting an apartment, or something else?";
 
+/**
+ * Renders the property manager's own questions into the prompt.
+ *
+ * Deliberately tells the agent nothing about which questions are criteria and which are just
+ * recorded, and never states a passing answer. If the agent knew that a 650 credit score
+ * fails, it would start pre-judging — softening the question, skipping it when it expects a
+ * bad answer, or announcing the outcome before check_qualification has run. It asks; the
+ * rules in convex/qualifyRules.ts decide.
+ */
+function screeningBlock(questions: ScreeningQuestion[]): string {
+  if (questions.length === 0) return "";
+
+  const lines = questions.map((q) => {
+    const shape =
+      q.answerKind === "yes_no"
+        ? "answer as true or false"
+        : q.answerKind === "number"
+          ? "answer as a number"
+          : q.answerKind === "choice"
+            ? `answer as exactly one of: ${(q.choices ?? []).join(", ")}`
+            : "answer as a short string, in their own words";
+    return `- "${q.question}"  →  key "${q.key}", ${shape}`;
+  });
+
+  return `EXTRA SCREENING QUESTIONS FOR THIS PROPERTY:
+Ask every one of these as well, in your own words, worked naturally into the conversation
+rather than read out as a list. Ask them after the five core fields unless the caller brings
+one up first. They are set by the property manager and are not optional.
+
+${lines.join("\n")}
+
+Pass all of them to check_qualification in the screening_answers argument, as a JSON object
+keyed by the key shown above — for example {"${questions[0].key}": ...}. Include a key only
+for questions the caller actually answered; never invent or guess a value, and never leave a
+question out just because you think you know what they would say.`;
+}
+
+/**
+ * Splices both rendered blocks into a prompt: the built-in questions this property still asks,
+ * and the manager's own extra ones.
+ *
+ * Falls back to appending when a placeholder is missing, because agents.prompt is editable in
+ * Settings and an agent may predate either block. The core block is appended unconditionally
+ * rather than only when non-empty — an agent with no WHAT TO ASK section would have nothing
+ * telling it what to collect at all.
+ */
+function composePrompt(
+  prompt: string,
+  questions: ScreeningQuestion[],
+  disabledCore: string[] = [],
+): string {
+  let next = prompt.includes(CORE_PLACEHOLDER)
+    ? prompt.replace(CORE_PLACEHOLDER, coreBlock(disabledCore))
+    : `${prompt}\n\n${coreBlock(disabledCore)}`;
+
+  const block = screeningBlock(questions);
+  if (next.includes(SCREENING_PLACEHOLDER)) {
+    next = next.replace(SCREENING_PLACEHOLDER, block);
+  } else if (block) {
+    next = `${next}\n\n${block}`;
+  }
+  return next;
+}
+
+
 // --- Reads ----------------------------------------------------------------
 
 /**
@@ -178,49 +258,49 @@ const DEFAULT_FIRST_MESSAGE =
 export const current = query({
   args: {},
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
-    if (!user) {
+    const org = await currentOrg(ctx);
+    if (!org) {
       const identity = await ctx.auth.getUserIdentity();
-      if (identity) return null; // signed in, just no user row synced yet
+      if (identity) return null; // signed in, just no team resolved yet
       return ctx.db.query("agents").first();
     }
     return ctx.db
       .query("agents")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_org", (q) => q.eq("orgId", org.orgId))
       .first();
   },
 });
 
 /**
- * `userId` undefined means "resolve the pre-multi-tenancy fallback" — the same one `current`
- * above falls back to for anonymous callers. Every mid-call tool webhook (convex/http.ts)
- * that can't yet tell which user a call belongs to goes through this same fallback, so a
- * phone call or a landing-page demo behaves exactly as it did before this migration.
+ * `orgId` undefined means "resolve the fallback" — the same row `current` above falls back to
+ * for anonymous callers. Every mid-call tool webhook (convex/http.ts) that can't yet tell
+ * which team a call belongs to goes through this same fallback, so a phone call or a
+ * landing-page demo still has an agent to answer from.
  */
 export const currentInternal = internalQuery({
-  args: { userId: v.optional(v.id("users")) },
+  args: { orgId: v.optional(v.string()) },
   handler: (ctx, args) => {
-    const userId = args.userId;
-    if (!userId) return ctx.db.query("agents").first();
+    const orgId = args.orgId;
+    if (!orgId) return ctx.db.query("agents").first();
     return ctx.db
       .query("agents")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .first();
   },
 });
 
 /**
- * Whoever owns the pre-multi-tenancy agent — the same row `current`/`currentInternal` fall
- * back to for an unresolvable caller. Doubles as "the template": every brand-new user is
- * bootstrapped as a copy of this account's agent, property, and knowledge base (see
- * agents.ensure), so a fresh sign-up sees the same working demo everyone always has, not a
- * blank slate with an empty knowledge base.
+ * Whichever team owns the oldest agent — the same row `current`/`currentInternal` fall back to
+ * for an unresolvable caller. Doubles as "the template": every brand-new team is bootstrapped
+ * as a copy of this one's agent, property, and knowledge base (see agents.ensure), so a fresh
+ * sign-up sees the same working demo everyone always has, not a blank slate with an empty
+ * knowledge base.
  */
-export const templateOwnerId = internalQuery({
+export const templateOrgId = internalQuery({
   args: {},
   handler: async (ctx) => {
     const agent = await ctx.db.query("agents").first();
-    return agent?.userId;
+    return agent?.orgId;
   },
 });
 
@@ -260,11 +340,17 @@ const TOOL_DEFS = (siteUrl: string): el.ToolDefinition[] => [
   {
     name: "check_qualification",
     description:
-      "Checks a prospective tenant's stated bedrooms, budget, move-in date, and pet needs " +
-      "against the property's real availability and rules. Call this once you have all five " +
-      "qualification fields. Never decide qualification yourself.",
+      "Checks a prospective tenant's stated bedrooms, budget, move-in date, pet needs and " +
+      "any extra screening answers against the property's real availability and rules. Call " +
+      "this once you have the five qualification fields and every extra screening question " +
+      "your instructions list. Never decide qualification yourself.",
     url: `${siteUrl}/tools/check-qualification`,
-    required: ["conversation_id", "bedrooms", "move_in_date", "budget", "pets_wanted", "caller_name", "caller_phone"],
+    // Only the two structural fields are required. move_in_date, budget and pets_wanted are
+    // optional because each property manager can switch those questions off (see
+    // convex/coreQuestions.ts) and this tool is shared by every agent, so `required` cannot
+    // vary per user. Which ones actually get asked is driven by each agent's own prompt; the
+    // webhook already type-guards all three, so an absent field simply skips its rule.
+    required: ["conversation_id", "bedrooms", "caller_name", "caller_phone"],
     properties: {
       conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
       bedrooms: {
@@ -277,6 +363,20 @@ const TOOL_DEFS = (siteUrl: string): el.ToolDefinition[] => [
       pet_type: { type: "string", description: "The kind of pet, if pets_wanted is true." },
       caller_name: { type: "string", description: "The caller's name." },
       caller_phone: { type: "string", description: "A callback number for the caller." },
+      // One string rather than a property per question, because this tool is shared by every
+      // property manager's agent (ensureTools looks tools up by name across the whole
+      // workspace) and their question sets differ. The keys and expected shapes are injected
+      // into each agent's own prompt by screeningBlock(); the webhook coerces what comes back
+      // using the stored answerKind, so a loosely-typed value here still lands as a real
+      // boolean or number before it ever reaches evaluateQualification.
+      screening_answers: {
+        type: "string",
+        description:
+          "JSON object of this property's extra screening answers, keyed exactly as listed " +
+          "under EXTRA SCREENING QUESTIONS in your instructions — e.g. " +
+          '{"q_co_signer": true, "q_credit_score": 720}. Include every question you asked. ' +
+          "Omit this argument entirely if your instructions list no extra questions.",
+      },
     },
   },
   {
@@ -426,22 +526,36 @@ export const saveAgent = action({
     voiceId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<string> => {
-    const userId = await requireUserId(ctx);
+    const { orgId, userId } = await requireOrgId(ctx);
     // A no-op if this user already has an agent. Guarantees that even someone who opens
     // Settings and hits Save before ever placing a call still starts from the same cloned
     // template (property + knowledge base included) as everyone else — not a bare prompt with
     // nothing behind it.
-    await ctx.runAction(internal.agents.ensure, { userId });
-    const existing = await ctx.runQuery(internal.agents.currentInternal, { userId });
+    await ctx.runAction(internal.agents.ensure, { orgId, userId });
+    const existing = await ctx.runQuery(internal.agents.currentInternal, { orgId });
     const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
       internal.docs.syncedEntries,
-      { userId },
+      { orgId },
     );
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
+    const questions: ScreeningQuestion[] = await ctx.runQuery(
+      internal.screening.activeForOrg,
+      { orgId },
+    );
+    const disabledCore: string[] = await ctx.runQuery(
+      internal.screening.disabledBuiltinsForOrg,
+      { orgId },
+    );
+
+    // Two different prompts on purpose: `sourcePrompt` is what the manager typed and what gets
+    // stored, `config.prompt` is that with the screening block rendered in. Storing the
+    // composed one would bake the render into the editable text and duplicate the block on
+    // every subsequent save.
+    const sourcePrompt = args.prompt ?? existing?.prompt ?? LEASING_PROMPT;
 
     const config: el.AgentConfig = {
       name: args.name ?? existing?.name ?? "Sarah",
-      prompt: args.prompt ?? existing?.prompt ?? LEASING_PROMPT,
+      prompt: composePrompt(sourcePrompt, questions, disabledCore),
       firstMessage: args.firstMessage ?? existing?.firstMessage ?? DEFAULT_FIRST_MESSAGE,
       voiceId: args.voiceId ?? existing?.voiceId ?? DEFAULT_VOICE_ID,
       knowledgeBase,
@@ -456,10 +570,11 @@ export const saveAgent = action({
       : (await el.createAgent(config)).agent_id;
 
     await ctx.runMutation(internal.agents.upsert, {
+      orgId,
       userId,
       elevenLabsAgentId,
       name: config.name,
-      prompt: config.prompt,
+      prompt: sourcePrompt,
       firstMessage: config.firstMessage,
       voiceId: config.voiceId,
     });
@@ -473,19 +588,27 @@ export const saveAgent = action({
  * finishes indexing or is deleted; a no-op when that user has no agent yet.
  */
 export const pushKnowledgeBase = internalAction({
-  args: { userId: v.id("users") },
+  args: { orgId: v.string() },
   handler: async (ctx, args): Promise<void> => {
-    const agent = await ctx.runQuery(internal.agents.currentInternal, { userId: args.userId });
+    const agent = await ctx.runQuery(internal.agents.currentInternal, { orgId: args.orgId });
     if (!agent) return;
 
     const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
       internal.docs.syncedEntries,
-      { userId: args.userId },
+      { orgId: args.orgId },
     );
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
+    const questions: ScreeningQuestion[] = await ctx.runQuery(
+      internal.screening.activeForOrg,
+      { orgId: args.orgId },
+    );
+    const disabledCore: string[] = await ctx.runQuery(
+      internal.screening.disabledBuiltinsForOrg,
+      { orgId: args.orgId },
+    );
     await el.updateAgent(agent.elevenLabsAgentId, {
       name: agent.name,
-      prompt: agent.prompt,
+      prompt: composePrompt(agent.prompt, questions, disabledCore),
       firstMessage: agent.firstMessage,
       voiceId: agent.voiceId,
       knowledgeBase,
@@ -497,27 +620,47 @@ export const pushKnowledgeBase = internalAction({
 });
 
 /**
+ * Re-renders one user's prompt after their screening questions change, so the agent starts
+ * asking (or stops asking) on the next call rather than the next time they open Settings.
+ *
+ * Scheduled by every write in convex/screening.ts. A no-op for a user with no agent yet —
+ * agents.ensure composes the block itself when it eventually creates one.
+ */
+export const pushScreening = internalAction({
+  args: { orgId: v.string() },
+  handler: async (ctx, args): Promise<void> => {
+    await ctx.runAction(internal.agents.pushKnowledgeBase, { orgId: args.orgId });
+  },
+});
+
+/**
  * Mints a short-lived WebRTC token. This is the only ElevenLabs call on the hot path of
  * starting a call, and the browser talks to ElevenLabs directly from here on — audio never
  * transits Convex.
  *
- * Signed in (the dashboard) → the caller's own agent, created on first call. Not signed in
- * (the public landing-page demo) → the pre-multi-tenancy fallback agent, exactly as before
- * this migration — see agents.current for the same branch on the read side.
+ * Signed in (the dashboard) → the caller's team agent, created on first call. Not signed in
+ * (the public landing-page demo) → the fallback agent — see agents.current for the same branch
+ * on the read side.
  */
 export const mintToken = action({
   args: {},
   handler: async (ctx): Promise<{ token: string; agentId: string }> => {
     const identity = await ctx.auth.getUserIdentity();
-    const userId = identity
-      ? (await ctx.runQuery(internal.users.byClerkId, { clerkId: identity.subject }))?._id
-      : undefined;
-    if (identity && !userId) throw new Error("User record not found — try again in a moment.");
 
-    let agent = await ctx.runQuery(internal.agents.currentInternal, { userId });
-    if (!agent && userId) {
-      await ctx.runAction(internal.agents.ensure, { userId });
-      agent = await ctx.runQuery(internal.agents.currentInternal, { userId });
+    // Not requireOrgId: this is also the public demo's entry point, and a signed-out caller
+    // has to fall through to the shared agent rather than be rejected.
+    let orgId: string | undefined;
+    let userId: Id<"users"> | undefined;
+    if (identity) {
+      const resolved = await requireOrgId(ctx);
+      orgId = resolved.orgId;
+      userId = resolved.userId;
+    }
+
+    let agent = await ctx.runQuery(internal.agents.currentInternal, { orgId });
+    if (!agent && orgId && userId) {
+      await ctx.runAction(internal.agents.ensure, { orgId, userId });
+      agent = await ctx.runQuery(internal.agents.currentInternal, { orgId });
     }
     if (!agent) throw new Error("Could not create an agent.");
 
@@ -526,38 +669,40 @@ export const mintToken = action({
   },
 });
 
-/** Creates the default Sarah agent for a user who doesn't have one yet. */
+/** Creates the default Sarah agent for a team that doesn't have one yet. */
 /**
- * Bootstraps a brand-new user with the exact same starting point every user has always had:
+ * Bootstraps a brand-new team with the exact same starting point every account has always had:
  * a copy of the template's property, knowledge base, and agent config (prompt, voice, first
- * message) — see templateOwnerId. Falls back to the coded LEASING_PROMPT/DEFAULT_* constants
+ * message) — see templateOrgId. Falls back to the coded LEASING_PROMPT/DEFAULT_* constants
  * only when there is truly no template to copy from (a from-scratch install, before any agent
  * has ever existed).
  */
 export const ensure = internalAction({
-  args: { userId: v.id("users") },
+  args: { orgId: v.string(), userId: v.id("users") },
   handler: async (ctx, args): Promise<void> => {
-    const existing = await ctx.runQuery(internal.agents.currentInternal, { userId: args.userId });
+    const existing = await ctx.runQuery(internal.agents.currentInternal, { orgId: args.orgId });
     if (existing) return;
 
     // Convex queries can't return `undefined` over the ctx.runQuery boundary — it comes back
     // as `null` here, so this normalizes back to `undefined` for the mutations below, which
-    // declare templateUserId as v.optional (translating to `T | undefined` in TS, not `| null`).
-    const templateUserId = (await ctx.runQuery(internal.agents.templateOwnerId, {})) ?? undefined;
-    const template = templateUserId
-      ? await ctx.runQuery(internal.agents.currentInternal, { userId: templateUserId })
+    // declare templateOrgId as v.optional (translating to `T | undefined` in TS, not `| null`).
+    const templateOrgId = (await ctx.runQuery(internal.agents.templateOrgId, {})) ?? undefined;
+    const template = templateOrgId
+      ? await ctx.runQuery(internal.agents.currentInternal, { orgId: templateOrgId })
       : null;
 
     // Cloning the property first, then the docs, matters: syncPropertyDoc (scheduled by the
     // property clone) and the doc clone both write into this user's docs table, and the doc
     // clone skips anything already there so it never fights the auto-generated property doc.
-    await ctx.runMutation(internal.properties.cloneForUser, {
+    await ctx.runMutation(internal.properties.cloneForOrg, {
+      orgId: args.orgId,
       userId: args.userId,
-      templateUserId,
+      templateOrgId,
     });
-    await ctx.runMutation(internal.docs.cloneDefaultsForUser, {
+    await ctx.runMutation(internal.docs.cloneDefaultsForOrg, {
+      orgId: args.orgId,
       userId: args.userId,
-      templateUserId,
+      templateOrgId,
     });
 
     // The cloned docs above are only scheduled to sync, not yet indexed — same as a doc saved
@@ -565,9 +710,19 @@ export const ensure = internalAction({
     // it automatically once each one finishes (see docs.pollRagIndex).
     const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
       internal.docs.syncedEntries,
-      { userId: args.userId },
+      { orgId: args.orgId },
     );
     const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
+    // A brand-new user has no questions of their own yet, but this is read rather than assumed
+    // empty so a cloned template's questions would render if cloning ever covers them.
+    const questions: ScreeningQuestion[] = await ctx.runQuery(
+      internal.screening.activeForOrg,
+      { orgId: args.orgId },
+    );
+    const disabledCore: string[] = await ctx.runQuery(
+      internal.screening.disabledBuiltinsForOrg,
+      { orgId: args.orgId },
+    );
 
     const name = template?.name ?? "Sarah";
     const prompt = template?.prompt ?? LEASING_PROMPT;
@@ -576,7 +731,7 @@ export const ensure = internalAction({
 
     const created = await el.createAgent({
       name,
-      prompt,
+      prompt: composePrompt(prompt, questions, disabledCore),
       firstMessage,
       voiceId,
       knowledgeBase,
@@ -585,6 +740,7 @@ export const ensure = internalAction({
       turn: TURN_TUNING,
     });
     await ctx.runMutation(internal.agents.upsert, {
+      orgId: args.orgId,
       userId: args.userId,
       elevenLabsAgentId: created.agent_id,
       name,
@@ -597,6 +753,7 @@ export const ensure = internalAction({
 
 export const upsert = internalMutation({
   args: {
+    orgId: v.string(),
     userId: v.id("users"),
     elevenLabsAgentId: v.string(),
     name: v.string(),
@@ -607,10 +764,119 @@ export const upsert = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("agents")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
       .first();
     const row = { ...args, updatedAt: Date.now() };
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("agents", row);
+  },
+});
+
+// --- One-off migration ----------------------------------------------------
+
+/**
+ * Every agent row, for the prompt migration below. Deliberately unscoped — this is the one
+ * place that is supposed to touch other people's agents, and it is internal so only a
+ * deployment operator can run it.
+ */
+export const allForMigration = internalQuery({
+  args: {},
+  handler: (ctx) => ctx.db.query("agents").collect(),
+});
+
+/** Patches just the prompt. agents.upsert needs every field, which a migration should not invent. */
+export const setPrompt = internalMutation({
+  args: { agentId: v.id("agents"), prompt: v.string() },
+  handler: (ctx, args) =>
+    ctx.db.patch(args.agentId, { prompt: args.prompt, updatedAt: Date.now() }),
+});
+
+/**
+ * Brings every existing agent's stored prompt up to date with pre-screening questions.
+ *
+ * Needed because agents.prompt lives in the database: editing LEASING_PROMPT only affects
+ * agents created afterwards, so without this every account that existed before this feature
+ * keeps telling Sarah the five built-in fields are the only things she may ask — which now
+ * contradicts the screening block appended below it.
+ *
+ * Safe to re-run: upgradeForScreening is a no-op once the placeholder is present, so a second
+ * pass reports "already up to date" and pushes nothing.
+ *
+ * Run `--dryRun true` first — it reports exactly what it would change and writes nothing.
+ */
+export const upgradePromptsForScreening = internalAction({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    total: number;
+    upgraded: number;
+    skipped: number;
+    failed: number;
+    needsManualReview: string[];
+    detail: Array<{ agent: string; status: string; note?: string }>;
+  }> => {
+    const agents = await ctx.runQuery(internal.agents.allForMigration, {});
+    const detail: Array<{ agent: string; status: string; note?: string }> = [];
+    const needsManualReview: string[] = [];
+    let upgraded = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const agent of agents) {
+      const next = upgradeForScreening(agent.prompt);
+
+      if (next === agent.prompt) {
+        skipped += 1;
+        detail.push({ agent: agent.name, status: "already up to date" });
+        continue;
+      }
+
+      // The placeholder gets appended either way, so the block still renders. But when the old
+      // passages were hand-edited we could not rewrite them, and the stale "these five fields
+      // are all that qualify" wording survives somewhere above it. That agent works, but it is
+      // carrying a contradiction a human should look at.
+      const handEdited = hasUnknownWording(agent.prompt);
+      if (handEdited) needsManualReview.push(agent.name);
+
+      if (args.dryRun) {
+        detail.push({
+          agent: agent.name,
+          status: "would upgrade",
+          note: handEdited ? "hand-edited — some old wording will survive" : undefined,
+        });
+        upgraded += 1;
+        continue;
+      }
+
+      try {
+        // Write first, then push: pushKnowledgeBase re-reads the row, so the order is what
+        // makes the new prompt the one that reaches ElevenLabs.
+        await ctx.runMutation(internal.agents.setPrompt, {
+          agentId: agent._id,
+          prompt: next,
+        });
+        if (!agent.orgId) throw new Error("Agent has no organization yet — run orgMigration.backfill first.");
+        await ctx.runAction(internal.agents.pushKnowledgeBase, { orgId: agent.orgId });
+        upgraded += 1;
+        detail.push({
+          agent: agent.name,
+          status: "upgraded",
+          note: handEdited ? "hand-edited — some old wording will survive" : undefined,
+        });
+      } catch (err) {
+        // One account's ElevenLabs push failing must not strand the rest half-migrated. The
+        // database row is already correct, so a re-run will retry only the push.
+        failed += 1;
+        detail.push({
+          agent: agent.name,
+          status: "FAILED",
+          note: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { total: agents.length, upgraded, skipped, failed, needsManualReview, detail };
   },
 });

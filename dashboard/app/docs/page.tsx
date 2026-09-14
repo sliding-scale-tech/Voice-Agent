@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock3,
   FileText,
+  FileUp,
   Lightbulb,
   Plus,
   ShoppingBag,
@@ -13,7 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useToast } from "@/components/toast";
@@ -30,6 +31,10 @@ const CARD_TONES = [
   { icon: FileText, className: "bg-fuchsia-50 text-fuchsia-600" },
   { icon: ShoppingBag, className: "bg-orange-50 text-orange-500" },
 ] as const;
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const ACCEPTED_UPLOAD =
+  ".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 type Doc = {
   _id: Id<"docs">;
@@ -62,8 +67,9 @@ export default function DocsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Knowledge</h1>
           <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
-            What the agent answers from. Saving pushes the text to the ElevenLabs knowledge base
-            and rebuilds its RAG index, the agent can use it once the badge reads Live.
+            What the agent answers from. Type an answer or upload a PDF or Word file. Saving
+            pushes the text to the ElevenLabs knowledge base and rebuilds its RAG index; Sarah
+            can use it once the badge reads Live.
           </p>
         </div>
         <button
@@ -77,7 +83,8 @@ export default function DocsPage() {
 
       {docs?.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center text-sm text-muted-foreground">
-          No knowledge yet. Add an answer so Sarah can use it during calls.
+          No knowledge yet. Add an answer or upload a PDF / Word file so Sarah can use it
+          during calls.
         </div>
       ) : null}
 
@@ -156,9 +163,15 @@ function KnowledgeModal({
   onDelete?: () => Promise<void>;
   onClose: () => void;
 }) {
+  const toast = useToast();
+  const generateUploadUrl = useMutation(api.docs.generateUploadUrl);
+  const extractFile = useAction(api.docs.extractFile);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState(doc?.title ?? "");
   const [body, setBody] = useState(doc?.body ?? "");
   const [busy, setBusy] = useState(false);
+  const [readingFile, setReadingFile] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const handleSave = async () => {
     if (!title.trim() || !body.trim()) return;
@@ -167,6 +180,43 @@ function KnowledgeModal({
       await onSave(title.trim(), body.trim());
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleFile = async (file: File) => {
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith(".doc") && !lower.endsWith(".docx")) {
+      toast("Old .doc files aren't supported. Save as .docx or PDF and try again.", "error");
+      return;
+    }
+    if (!lower.endsWith(".pdf") && !lower.endsWith(".docx")) {
+      toast("Please upload a PDF or Word (.docx) file.", "error");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast("That file is over 20MB. Please upload a smaller PDF or Word doc.", "error");
+      return;
+    }
+
+    setReadingFile(true);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const uploaded = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!uploaded.ok) throw new Error("Could not upload the file.");
+      const { storageId } = (await uploaded.json()) as { storageId: Id<"_storage"> };
+      const extracted = await extractFile({ storageId, fileName: file.name });
+      setTitle((current) => current.trim() || extracted.title);
+      setBody(extracted.body);
+      toast("Extracted the file text — review it and save");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not read that file.", "error");
+    } finally {
+      setReadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -211,6 +261,44 @@ function KnowledgeModal({
             </div>
           </label>
 
+          <div>
+            <span className="mb-2 block text-sm font-medium">Upload PDF or Word</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_UPLOAD}
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void handleFile(file);
+              }}
+            />
+            <button
+              type="button"
+              disabled={busy || readingFile}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragOver(false);
+                const file = event.dataTransfer.files[0];
+                if (file) void handleFile(file);
+              }}
+              className={`flex w-full items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-6 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                dragOver
+                  ? "border-primary bg-primary/5 text-foreground"
+                  : "border-input bg-muted/20 text-muted-foreground hover:bg-accent"
+              }`}
+            >
+              <FileUp className="h-4 w-4 shrink-0" />
+              {readingFile ? "Reading file…" : "Drop a .pdf or .docx here, or click to browse"}
+            </button>
+          </div>
+
           <label className="block">
             <span className="mb-2 block text-sm font-medium">Answer / content</span>
             <div className="relative">
@@ -218,9 +306,9 @@ function KnowledgeModal({
               <textarea
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
-                rows={7}
-                placeholder="Write the answer the way you would say it out loud."
-                className="w-full resize-none rounded-xl border border-input bg-card px-10 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground-subtle focus:ring-2 focus:ring-ring/20"
+                rows={10}
+                placeholder="Write the answer the way you would say it out loud, or upload a file above."
+                className="min-h-40 w-full resize-y rounded-xl border border-input bg-card px-10 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground-subtle focus:ring-2 focus:ring-ring/20"
               />
             </div>
           </label>
@@ -256,7 +344,7 @@ function KnowledgeModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={busy || !title.trim() || !body.trim()}
+              disabled={busy || readingFile || !title.trim() || !body.trim()}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy ? "Saving…" : doc ? "Save changes" : "Add knowledge"}

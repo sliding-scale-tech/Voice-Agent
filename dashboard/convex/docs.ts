@@ -9,34 +9,34 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import * as el from "./elevenLabsApi";
-import { currentUser, requireUser, requireUserId } from "./authz";
+import { currentOrg, requireOrg, requireOrgId } from "./authz";
 
-// Shared with cloneDefaultsForUser below, so the two never drift into disagreeing on which
+// Shared with cloneDefaultsForOrg below, so the two never drift into disagreeing on which
 // title marks a doc as generated rather than authored content worth cloning verbatim.
 const PROPERTY_DOC_TITLE = "Property details (auto-generated)";
 
 // --- Reads ----------------------------------------------------------------
 
-/** The signed-in user's own knowledge base. Empty (not an error) when signed out. */
+/** The signed-in team's knowledge base. Empty (not an error) when signed out. */
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
-    if (!user) return [];
+    const org = await currentOrg(ctx);
+    if (!org) return [];
     return ctx.db
       .query("docs")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_org", (q) => q.eq("orgId", org.orgId))
       .order("desc")
       .collect();
   },
 });
 
 export const syncedEntries = internalQuery({
-  args: { userId: v.id("users") },
+  args: { orgId: v.string() },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("docs")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
       .collect();
     return docs
       .filter((d) => d.kbDocumentId !== undefined)
@@ -50,12 +50,12 @@ export const syncedEntries = internalQuery({
 });
 
 /**
- * Seeds a brand-new user's knowledge base as a copy of the template's — see
- * agents.templateOwnerId. A no-op if this user already has any docs (never clobbers real
+ * Seeds a brand-new team's knowledge base as a copy of the template's — see
+ * agents.templateOrgId. A no-op if this team already has any docs (never clobbers real
  * work) or if there's no template to copy from (a from-scratch install with nothing to clone).
  *
  * The auto-generated property doc is skipped on purpose: it's derived, not authored, and
- * properties.cloneForUser regenerates this user's own copy of it from their own (also cloned)
+ * properties.cloneForOrg regenerates this team's own copy of it from their own (also cloned)
  * property row instead — cloning it verbatim here would only be correct until either property
  * was next edited.
  *
@@ -63,25 +63,30 @@ export const syncedEntries = internalQuery({
  * the same as a doc saved by hand — there is no shortcut for "this text is already indexed
  * somewhere," since ElevenLabs KB documents aren't shared across agents.
  */
-export const cloneDefaultsForUser = internalMutation({
-  args: { userId: v.id("users"), templateUserId: v.optional(v.id("users")) },
+export const cloneDefaultsForOrg = internalMutation({
+  args: {
+    orgId: v.string(),
+    userId: v.id("users"),
+    templateOrgId: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("docs")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
       .first();
-    const templateUserId = args.templateUserId;
-    if (existing || !templateUserId) return;
+    const templateOrgId = args.templateOrgId;
+    if (existing || !templateOrgId) return;
 
     const templateDocs = await ctx.db
       .query("docs")
-      .withIndex("by_user", (q) => q.eq("userId", templateUserId))
+      .withIndex("by_org", (q) => q.eq("orgId", templateOrgId))
       .collect();
 
     const now = Date.now();
     for (const doc of templateDocs) {
       if (doc.title === PROPERTY_DOC_TITLE) continue;
       const docId = await ctx.db.insert("docs", {
+        orgId: args.orgId,
         userId: args.userId,
         title: doc.title,
         body: doc.body,
@@ -113,6 +118,30 @@ export const syncedTextInternal = internalQuery({
 
 // --- Writes ---------------------------------------------------------------
 
+/** Short-lived URL the dashboard POSTs a PDF or Word file to before we extract its text. */
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireOrg(ctx);
+    return ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Reads an uploaded PDF or .docx through the Node extractor, then returns plain text the
+ * editor can save through the normal docs.save path.
+ */
+export const extractFile = action({
+  args: {
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ title: string; body: string }> => {
+    await requireOrgId(ctx);
+    return await ctx.runAction(internal.docsImport.extractFile, args);
+  },
+});
+
 /**
  * Saving a doc schedules its sync immediately. The write returns as soon as the row lands so
  * the editor stays responsive; the badge tracks the sync from there.
@@ -124,14 +153,14 @@ export const save = mutation({
     body: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const { orgId, user } = await requireOrg(ctx);
     const now = Date.now();
     let docId = args.id;
 
     if (docId) {
       const existing = await ctx.db.get(docId);
-      // A docId for someone else's doc, or one that's gone — either way, not this write's to make.
-      if (!existing || existing.userId !== user._id) throw new Error("Doc not found.");
+      // A docId for another team's doc, or one that's gone — either way, not this write's to make.
+      if (!existing || existing.orgId !== orgId) throw new Error("Doc not found.");
       await ctx.db.patch(docId, {
         title: args.title,
         body: args.body,
@@ -141,6 +170,7 @@ export const save = mutation({
       });
     } else {
       docId = await ctx.db.insert("docs", {
+        orgId,
         userId: user._id,
         title: args.title,
         body: args.body,
@@ -157,15 +187,15 @@ export const save = mutation({
 export const remove = action({
   args: { docId: v.id("docs") },
   handler: async (ctx, args): Promise<void> => {
-    const userId = await requireUserId(ctx);
+    const { orgId } = await requireOrgId(ctx);
     const doc = await ctx.runQuery(internal.docs.getInternal, { docId: args.docId });
-    if (!doc || doc.userId !== userId) return;
+    if (!doc || doc.orgId !== orgId) return;
 
     if (doc.kbDocumentId) {
       await el.deleteKbDoc(doc.kbDocumentId, doc.ragIndexId);
     }
     await ctx.runMutation(internal.docs.deleteRow, { docId: args.docId });
-    await ctx.runAction(internal.agents.pushKnowledgeBase, { userId });
+    await ctx.runAction(internal.agents.pushKnowledgeBase, { orgId });
   },
 });
 
@@ -228,10 +258,10 @@ export const pollRagIndex = internalAction({
           docId: args.docId,
           syncState: "synced",
         });
-        // Only now is the doc actually answerable, so attach it to the agent. doc.userId is
+        // Only now is the doc actually answerable, so attach it to the agent. doc.orgId is
         // always set by this point — every doc that can reach a synced state was created
         // through docs.save or syncPropertyDoc, both of which stamp it at insert time.
-        if (doc.userId) await ctx.runAction(internal.agents.pushKnowledgeBase, { userId: doc.userId });
+        if (doc.orgId) await ctx.runAction(internal.agents.pushKnowledgeBase, { orgId: doc.orgId });
         return;
       }
 
@@ -267,11 +297,11 @@ export const pollRagIndex = internalAction({
  * agent to first gather all five qualification fields.
  */
 export const syncPropertyDoc = internalMutation({
-  args: { userId: v.id("users") },
+  args: { orgId: v.string(), userId: v.id("users") },
   handler: async (ctx, args) => {
     const property = await ctx.db
       .query("properties")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
       .first();
     if (!property) return;
 
@@ -285,12 +315,12 @@ export const syncPropertyDoc = internalMutation({
       ),
     ].join("\n");
 
-    // Scoped to this user's own docs: two different users' properties both produce a doc
-    // titled "Property details (auto-generated)", and without the userId filter this would
+    // Scoped to this team's own docs: two different teams' properties both produce a doc
+    // titled "Property details (auto-generated)", and without the orgId filter this would
     // find and overwrite whichever one happened to exist first.
     const existing = await ctx.db
       .query("docs")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
       .filter((q) => q.eq(q.field("title"), title))
       .first();
 
@@ -305,6 +335,7 @@ export const syncPropertyDoc = internalMutation({
       });
     } else {
       docId = await ctx.db.insert("docs", {
+        orgId: args.orgId,
         userId: args.userId,
         title,
         body,

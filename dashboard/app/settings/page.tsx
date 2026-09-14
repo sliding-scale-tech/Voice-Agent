@@ -6,6 +6,11 @@ import { api } from "@/convex/_generated/api";
 import { useToast } from "@/components/toast";
 import { RUBRIC } from "@/convex/leadScoring";
 import { RESIDENT_TRIAGE_BLOCK } from "@/convex/residentTriage";
+import {
+  hasUnknownWording,
+  needsScreeningUpgrade,
+  upgradeForScreening,
+} from "@/convex/screeningPrompt";
 import { SEVERITY_RUBRIC } from "@/convex/severity";
 import { WA_DEFAULT_PROMPT } from "@/convex/waPrompt";
 import { Bot, Users, Gauge, AlertTriangle, MessageCircle } from "lucide-react";
@@ -146,6 +151,34 @@ ${RESIDENT_TRIAGE_BLOCK}`)}
               className="mt-3 rounded-lg border border-input px-3 py-1.5 text-sm hover:bg-accent"
             >
               Insert resident triage instructions
+            </button>
+          </div>
+        )}
+
+        {/* Same story as the resident-triage button above: the live prompt is in the database,
+            so an agent created before pre-screening questions existed still carries the old
+            wording that says the five built-in fields are the only things Sarah may ask and
+            the only things that can disqualify. That now contradicts the questions block, and
+            a model given two contradictory instructions follows whichever it likes. */}
+        {needsScreeningUpgrade(prompt) && (
+          <div className="rounded-lg border border-dashed border-border p-3">
+            <div className="text-sm font-medium">
+              This prompt still says the five built-in questions are the only ones
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Your pre-screening questions are set on the Property page, but this prompt tells
+              Sarah not to ask anything beyond the built-in five. This rewrites those two
+              passages and marks where the questions get inserted.
+              {hasUnknownWording(prompt)
+                ? " Heads up: parts of this prompt have been edited by hand, so some of the old wording will survive — check the text above after applying and delete anything that still says five questions are all there is."
+                : ""}
+            </p>
+            <button
+              type="button"
+              onClick={() => setPrompt(upgradeForScreening(prompt))}
+              className="mt-3 rounded-lg border border-input px-3 py-1.5 text-sm hover:bg-accent"
+            >
+              Update prompt for pre-screening questions
             </button>
           </div>
         )}

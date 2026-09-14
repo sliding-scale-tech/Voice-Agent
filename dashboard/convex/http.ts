@@ -1,9 +1,14 @@
 import { httpRouter, type GenericActionCtx } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { DataModel, Id } from "./_generated/dataModel";
+import type { DataModel } from "./_generated/dataModel";
 import { clampSeverity } from "./severity";
-import { evaluateQualification } from "./qualifyRules";
+import {
+  coerceScreeningAnswers,
+  evaluateQualification,
+  missingScreeningKeys,
+  type ScreeningQuestion,
+} from "./qualifyRules";
 import * as waha from "./wahaApi";
 import { realPhone } from "./sanitize";
 import { handleClerkWebhook } from "./clerkWebhook";
@@ -11,23 +16,23 @@ import { handleClerkWebhook } from "./clerkWebhook";
 const http = httpRouter();
 
 /**
- * Resolves which user a mid-call tool request belongs to, from the ElevenLabs conversation id
+ * Resolves which team a mid-call tool request belongs to, from the ElevenLabs conversation id
  * every tool call carries. Returns undefined whenever it can't yet be resolved — the public
  * landing-page demo, or a phone call whose Convex conversations row hasn't been created yet
- * (see conversations.ownerByElevenLabsId) — and every caller below already falls back to the
- * pre-multi-tenancy default in that case, exactly as this codebase behaved before.
+ * (see conversations.orgByElevenLabsId) — and every caller below already falls back to the
+ * shared default in that case.
  */
-async function resolveOwner(
+async function resolveOrg(
   ctx: GenericActionCtx<DataModel>,
   conversationId: string | undefined,
-): Promise<Id<"users"> | undefined> {
+): Promise<string | undefined> {
   if (!conversationId) return undefined;
   // Convex queries can't return `undefined` over the wire — a query handler returning it comes
   // back as `null` here, so this normalizes back to `undefined` for the rest of this file.
-  const userId = await ctx.runQuery(internal.conversations.ownerByElevenLabsId, {
+  const orgId = await ctx.runQuery(internal.conversations.orgByElevenLabsId, {
     elevenLabsConversationId: conversationId,
   });
-  return userId ?? undefined;
+  return orgId ?? undefined;
 }
 
 // Clerk → Convex user sync. Endpoint configured in the Clerk dashboard as
@@ -54,8 +59,8 @@ http.route({
     const bedrooms: string | undefined = body.bedrooms;
     const conversationId: string | undefined = body.conversation_id;
 
-    const userId = await resolveOwner(ctx, conversationId);
-    const property = await ctx.runQuery(internal.properties.currentInternal, { userId });
+    const orgId = await resolveOrg(ctx, conversationId);
+    const property = await ctx.runQuery(internal.properties.currentInternal, { orgId });
     const unit = bedrooms
       ? property.units.find((u: { bedrooms: string }) => u.bedrooms === bedrooms)
       : undefined;
@@ -96,23 +101,53 @@ http.route({
       pet_type: petType,
       caller_name: callerName,
       caller_phone: callerPhone,
+      screening_answers: screeningAnswersRaw,
     } = body;
 
     if (!conversationId) {
       return Response.json({ error: "missing conversation_id" }, { status: 400 });
     }
 
-    const userId = await resolveOwner(ctx, conversationId);
-    const property = await ctx.runQuery(internal.properties.currentInternal, { userId });
+    const orgId = await resolveOrg(ctx, conversationId);
+    const property = await ctx.runQuery(internal.properties.currentInternal, { orgId });
+
+    const questions: ScreeningQuestion[] = await ctx.runQuery(
+      internal.screening.activeForOrg,
+      { orgId },
+    );
+    const screeningAnswers = coerceScreeningAnswers(questions, screeningAnswersRaw);
+
+    // A question that decides qualification but has no usable answer is not a "no" — it is a
+    // question that still needs asking. Deciding here would let a caller qualify purely
+    // because the agent skipped something, so send the agent back rather than ruling.
+    const missing = missingScreeningKeys(questions, screeningAnswers);
+    if (missing.length > 0) {
+      const stillNeeded = questions
+        .filter((q) => missing.includes(q.key))
+        .map((q) => q.question);
+      return Response.json({
+        qualifies: null,
+        needs_more_info: true,
+        still_needed: stillNeeded,
+        message:
+          "Do not state a qualification result yet. Ask the caller the questions in " +
+          "still_needed, then call this tool again with those answers included.",
+      });
+    }
 
     // Shared with the WhatsApp bot on purpose — see convex/qualifyRules.ts. Two copies of
     // this decision would let the same person be told "yes" on one channel and "no" on the
     // other.
-    const { qualifies, disqualifyReason } = evaluateQualification(property, {
-      bedrooms,
-      budget: typeof budget === "number" ? budget : undefined,
-      petsWanted: typeof petsWanted === "boolean" ? petsWanted : undefined,
-    });
+    const { qualifies, disqualifyReason } = evaluateQualification(
+      property,
+      {
+        bedrooms,
+        budget: typeof budget === "number" ? budget : undefined,
+        petsWanted: typeof petsWanted === "boolean" ? petsWanted : undefined,
+      },
+      questions,
+      screeningAnswers,
+    );
 
     await ctx.runMutation(internal.qualifications.upsertByConversationId, {
       elevenLabsConversationId: conversationId,
@@ -125,6 +160,13 @@ http.route({
       callerPhone,
       qualifies,
       disqualifyReason,
+      // Every answer, criteria or not — the capture-only ones exist precisely so the manager
+      // can read them on the lead.
+      screeningAnswers: screeningAnswers.map((a) => ({
+        key: a.key,
+        question: questions.find((q) => q.key === a.key)?.question ?? a.key,
+        value: a.value,
+      })),
     });
 
     return Response.json({
