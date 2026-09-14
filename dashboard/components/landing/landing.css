@@ -67,8 +67,8 @@
 
 .landing-root .brand-logo {
   display: block;
-  width: 132px;
-  height: auto;
+  height: 34px;
+  width: auto;
 }
 
 .landing-root .nav-cta {
@@ -518,7 +518,7 @@
 }
 
 .landing-root .footer-brand .brand-logo {
-  width: 104px;
+  height: 28px;
 }
 
 .landing-root .footer-brand p {
@@ -601,7 +601,7 @@
     padding: 0 20px;
   }
   .landing-root .brand-logo {
-    width: 112px;
+    height: 30px;
   }
   .landing-root .nav-cta {
     font-size: 14px;

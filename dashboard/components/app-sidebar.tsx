@@ -201,8 +201,9 @@ function Brand({
 }) {
   const inner = (
     <>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">
-        S
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-sidebar-border">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/simplr-mark.png" alt="Simplr" className="h-5 w-auto" />
       </div>
       <div className="min-w-0 flex-1 leading-tight">
         <div className="text-sm font-semibold text-sidebar-foreground">Sarah</div>

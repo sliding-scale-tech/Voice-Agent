@@ -192,7 +192,7 @@ export function RatingModal({
       {step === "done" && (
         <>
           <h3>Got it — thank you!</h3>
-          <p>Appreciate you trying LeaseOps.</p>
+          <p>Appreciate you trying Simplr.</p>
         </>
       )}
     </ModalShell>

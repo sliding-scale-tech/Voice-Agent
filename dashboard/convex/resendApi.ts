@@ -17,7 +17,7 @@ function apiKey(): string {
 // The only domain verified on this Resend account. Sending "from" an unverified domain gets
 // silently rejected or spam-foldered by most providers, so this can't default to something
 // guessed — update it here if the account's verified domain ever changes.
-const FROM_ADDRESS = "LeaseOps <no-reply@slidingscale.xyz>";
+const FROM_ADDRESS = "Simplr <no-reply@slidingscale.xyz>";
 
 export async function sendEmail(input: {
   to: string;

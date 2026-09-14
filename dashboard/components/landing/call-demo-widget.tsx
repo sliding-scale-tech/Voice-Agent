@@ -496,7 +496,7 @@ function CallDemoInner() {
               ) : demo.lines.length === 0 ? (
                 <div className="empty-state">
                   <strong>Ready to answer the next call</strong>
-                  Press play to hear LeaseOps qualify the renter, capture the details, and book the tour.
+                  Press play to hear Simplr qualify the renter, capture the details, and book the tour.
                 </div>
               ) : (
                 demo.lines.map((line) => (

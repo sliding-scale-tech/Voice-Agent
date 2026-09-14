@@ -18,8 +18,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Voice Agent",
-  description: "ElevenLabs voice agent dashboard",
+  title: { default: "Simplr", template: "%s | Simplr" },
+  description:
+    "Simplr answers, qualifies, and books tours for every rental inquiry, day or night, so property managers never lose a lead to a missed call.",
+  applicationName: "Simplr",
+  openGraph: { siteName: "Simplr", title: "Simplr", type: "website" },
 };
 
 export default function RootLayout({

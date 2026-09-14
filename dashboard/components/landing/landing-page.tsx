@@ -6,10 +6,10 @@ import "./landing.css";
 
 const BOOK_A_CALL_URL = "https://calendar.app.google/t99M1z5e9BUTVe1K6";
 
-function LeaseOpsLogo({ className }: { className?: string }) {
+function SimplrLogo({ className }: { className?: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img className={className ?? "brand-logo"} src="/landing/Logo.png" alt="LeaseOps" />
+    <img className={className ?? "brand-logo"} src="/brand/simplr-logo.png" alt="Simplr" />
   );
 }
 
@@ -18,8 +18,8 @@ export function LandingPage({ className }: { className?: string }) {
     <div className={`landing-root${className ? ` ${className}` : ""}`}>
       <div className="page-shell">
         <nav className="site-nav" aria-label="Primary navigation">
-          <Link className="brand" href="/" aria-label="LeaseOps home">
-            <LeaseOpsLogo />
+          <Link className="brand" href="/" aria-label="Simplr home">
+            <SimplrLogo />
           </Link>
           <a
             className="nav-cta"
@@ -37,7 +37,7 @@ export function LandingPage({ className }: { className?: string }) {
           </div>
           <h1>Watch Sarah answer a renter call</h1>
           <p className="hero-copy">
-            A calm, realistic walkthrough of how LeaseOps answers, qualifies, and books a tour while your leasing team
+            A calm, realistic walkthrough of how Simplr answers, qualifies, and books a tour while your leasing team
             is offline.
           </p>
           <CallDemoWidget />
@@ -47,11 +47,11 @@ export function LandingPage({ className }: { className?: string }) {
           <div className="footer-container">
             <div className="footer-top">
               <div className="footer-brand">
-                <Link className="brand" href="/" aria-label="LeaseOps home">
-                  <LeaseOpsLogo />
+                <Link className="brand" href="/" aria-label="Simplr home">
+                  <SimplrLogo />
                 </Link>
                 <p>
-                  LeaseOps answers, qualifies, and books tours for every rental inquiry, day or night, so residential
+                  Simplr answers, qualifies, and books tours for every rental inquiry, day or night, so residential
                   property managers never lose a lead to a missed call.
                 </p>
               </div>
@@ -80,7 +80,7 @@ export function LandingPage({ className }: { className?: string }) {
               </div>
             </div>
             <div className="footer-bottom">
-              <span>© 2026 LeaseOps | All Rights Reserved</span>
+              <span>© 2026 Simplr | All Rights Reserved</span>
               <span className="made">
                 Created by <strong>Sliding Scale Technologies</strong>
               </span>

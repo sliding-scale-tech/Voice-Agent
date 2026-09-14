@@ -49,7 +49,7 @@ function renderTranscriptEmail(messages: Array<{ role: "user" | "agent"; text: s
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 18px 60px rgba(34,68,112,0.10);">
             <tr>
               <td style="padding:32px 32px 24px;border-bottom:1px solid #e8edf4;">
-                <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#2563eb;">LeaseOps</div>
+                <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#2563eb;">Simplr</div>
                 <div style="font-size:22px;font-weight:700;color:#111318;margin-top:6px;">Your call transcript</div>
                 <div style="font-size:14px;color:#68707d;margin-top:4px;">From your "Try yourself" demo call &middot; ${dateStr}</div>
               </td>
@@ -62,7 +62,7 @@ function renderTranscriptEmail(messages: Array<{ role: "user" | "agent"; text: s
             <tr>
               <td style="padding:20px 32px 32px;border-top:1px solid #e8edf4;">
                 <div style="font-size:13px;color:#8b94a3;line-height:1.6;">
-                  This was a demo call with LeaseOps's AI leasing assistant, not a real apartment
+                  This was a demo call with Simplr's AI leasing assistant, not a real apartment
                   inquiry. Want this answering calls for your own properties, day and night? Just
                   reply to this email.
                 </div>
@@ -105,7 +105,7 @@ export const send = internalAction({
 
     await resend.sendEmail({
       to: rating.email,
-      subject: "Your LeaseOps demo call transcript",
+      subject: "Your Simplr demo call transcript",
       html,
     });
   },
