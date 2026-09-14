@@ -12,6 +12,9 @@ export const PUBLIC_ROUTE_PREFIXES = [
   "/sign-up",
   "/sso-callback",
   "/accept-invite",
+  // Google OAuth verification requires these to be reachable without an account.
+  "/privacy",
+  "/terms",
 ] as const;
 
 /** Matcher patterns for Clerk's createRouteMatcher, plus the bare landing page. */

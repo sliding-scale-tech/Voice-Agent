@@ -133,6 +133,17 @@ export function SignUpForm() {
           <Link href="/sign-in" className="font-medium text-primary hover:underline">
             Sign in
           </Link>
+          <p className="mt-3 text-xs">
+            By creating an account, you agree to our{" "}
+            <Link href="/terms" className="underline hover:text-foreground">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="underline hover:text-foreground">
+              Privacy Policy
+            </Link>
+            .
+          </p>
         </>
       }
     >

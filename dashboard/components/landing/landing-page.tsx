@@ -1,35 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { CallDemoWidget } from "./call-demo-widget";
+import { SiteFooter, SiteNav } from "./site-chrome";
 import "./landing.css";
-
-const BOOK_A_CALL_URL = "https://calendar.app.google/t99M1z5e9BUTVe1K6";
-
-function SimplrLogo({ className }: { className?: string }) {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img className={className ?? "brand-logo"} src="/brand/simplr-logo.png" alt="Simplr" />
-  );
-}
 
 export function LandingPage({ className }: { className?: string }) {
   return (
     <div className={`landing-root${className ? ` ${className}` : ""}`}>
       <div className="page-shell">
-        <nav className="site-nav" aria-label="Primary navigation">
-          <Link className="brand" href="/" aria-label="Simplr home">
-            <SimplrLogo />
-          </Link>
-          <a
-            className="nav-cta"
-            href={BOOK_A_CALL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Book a Call
-          </a>
-        </nav>
+        <SiteNav />
 
         <main className="hero" id="demo">
           <div className="eyebrow">
@@ -43,50 +22,7 @@ export function LandingPage({ className }: { className?: string }) {
           <CallDemoWidget />
         </main>
 
-        <footer className="site-footer">
-          <div className="footer-container">
-            <div className="footer-top">
-              <div className="footer-brand">
-                <Link className="brand" href="/" aria-label="Simplr home">
-                  <SimplrLogo />
-                </Link>
-                <p>
-                  Simplr answers, qualifies, and books tours for every rental inquiry, day or night, so residential
-                  property managers never lose a lead to a missed call.
-                </p>
-              </div>
-              <div className="footer-right">
-                <nav className="footer-nav" aria-label="Footer navigation">
-                  <ul>
-                    <li>
-                      <a href={BOOK_A_CALL_URL} target="_blank" rel="noopener noreferrer">
-                        Book a Call
-                      </a>
-                    </li>
-                    <li>
-                      <a
-                        href="https://www.linkedin.com/in/aleem-ansari/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Chat with me on LinkedIn
-                      </a>
-                    </li>
-                    <li>
-                      <Link href="/sign-in">Login</Link>
-                    </li>
-                  </ul>
-                </nav>
-              </div>
-            </div>
-            <div className="footer-bottom">
-              <span>© 2026 Simplr | All Rights Reserved</span>
-              <span className="made">
-                Created by <strong>Sliding Scale Technologies</strong>
-              </span>
-            </div>
-          </div>
-        </footer>
+        <SiteFooter />
       </div>
     </div>
   );
