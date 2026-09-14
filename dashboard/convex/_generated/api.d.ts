@@ -34,6 +34,7 @@ import type * as screening from "../screening.js";
 import type * as screeningPrompt from "../screeningPrompt.js";
 import type * as severity from "../severity.js";
 import type * as smsBot from "../smsBot.js";
+import type * as tasks from "../tasks.js";
 import type * as team from "../team.js";
 import type * as tenants from "../tenants.js";
 import type * as threads from "../threads.js";
@@ -78,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   screeningPrompt: typeof screeningPrompt;
   severity: typeof severity;
   smsBot: typeof smsBot;
+  tasks: typeof tasks;
   team: typeof team;
   tenants: typeof tenants;
   threads: typeof threads;

@@ -163,6 +163,42 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_user", ["userId"]),
 
+  // Team to-dos on the Tasks tab. Grouped in the UI by `status`; `order` is not tracked since
+  // the page doesn't support drag reordering.
+  tasks: defineTable({
+    // Required, same reasoning as docs/properties/screeningQuestions above: every insert path
+    // stamps it, so there is no "unowned row" case to make optional for.
+    orgId: v.string(),
+    userId: v.id("users"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    status: v.union(v.literal("todo"), v.literal("in_progress"), v.literal("completed")),
+    priority: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+    // Free text rather than a union: this mirrors tenantIssues.category above — a label like
+    // "Leasing" or "HR" is just a display tag, not something the app branches logic on.
+    category: v.optional(v.string()),
+    assignee: v.optional(v.string()),
+    dueDate: v.optional(v.number()),
+    tags: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_user", ["userId"]),
+
+  // One row per comment on the detail panel's Comments thread. Kept in its own table rather
+  // than an array on the task doc so a long thread never has to be rewritten wholesale to add
+  // one message — same reasoning as messages/smsMessages elsewhere in this schema.
+  taskComments: defineTable({
+    taskId: v.id("tasks"),
+    // Denormalized like screeningQuestions.question: the poster's name at the time they wrote
+    // it, so a later name change doesn't rewrite history.
+    authorName: v.string(),
+    authorUserId: v.id("users"),
+    text: v.string(),
+    createdAt: v.number(),
+  }).index("by_task", ["taskId"]),
+
   usage: defineTable({
     monthKey: v.string(), // "2026-07"
     secondsUsed: v.number(),
