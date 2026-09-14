@@ -76,6 +76,11 @@ type Qualification = {
   qualifies?: boolean;
   disqualifyReason?: string;
   tourSlot?: string;
+  screeningAnswers?: Array<{
+    key: string;
+    question: string;
+    value: string | number | boolean;
+  }>;
 } | null;
 
 export default function LeadsPage() {
@@ -560,6 +565,27 @@ function ExpandedDetail({
           <Field label="Name" value={qualification.callerName} />
           <Field label="Phone" value={qualification.callerPhone} />
           <Field label="Tour slot" value={qualification.tourSlot} />
+        </div>
+      ) : null}
+      {qualification?.screeningAnswers?.length ? (
+        <div className="rounded-xl border border-border p-3">
+          <p className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            Screening answers
+          </p>
+          <div className="space-y-1.5 text-sm">
+            {qualification.screeningAnswers.map((answer) => (
+              <div key={answer.key}>
+                <span className="text-muted-foreground">{answer.question} </span>
+                <span className="font-medium">
+                  {typeof answer.value === "boolean"
+                    ? answer.value
+                      ? "Yes"
+                      : "No"
+                    : String(answer.value)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
       <div className="space-y-3">

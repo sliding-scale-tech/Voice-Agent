@@ -29,6 +29,32 @@ export type QualifyInput = {
   petsWanted?: boolean;
 };
 
+/**
+ * A property manager's own pre-screening question, defined in the dashboard.
+ *
+ * `criterion` is what separates the two kinds. Absent, the answer is recorded on the lead and
+ * is incapable of affecting the decision. Present, it is a real rule applied here — by this
+ * function, never by the model.
+ */
+export type ScreeningCriterion =
+  | { kind: "yes_no"; mustBe: boolean }
+  | { kind: "number"; op: "gte" | "lte"; value: number }
+  | { kind: "choice"; allowed: string[] };
+
+export type ScreeningQuestion = {
+  key: string;
+  question: string;
+  answerKind: "yes_no" | "number" | "choice" | "text";
+  choices?: string[];
+  criterion?: ScreeningCriterion;
+};
+
+/** One spoken answer, already normalized to a real type by the model's tool-call schema. */
+export type ScreeningAnswer = {
+  key: string;
+  value: string | number | boolean;
+};
+
 export type QualifyResult = {
   qualifies: boolean;
   disqualifyReason?: string;
@@ -40,10 +66,17 @@ export type QualifyResult = {
  * the person writes, their name, or anything else they mention may ever factor in.
  *
  * Note `moveInDate` is captured elsewhere but is deliberately not a rule — it never has been.
+ *
+ * On top of those three, a property manager may define their own questions and mark some of
+ * them as criteria. Those are applied after the built-ins, so a hard availability or budget
+ * failure still wins and still gives the clearer reason. A custom question with no criterion,
+ * or with no answer captured, can never disqualify anyone.
  */
 export function evaluateQualification(
   property: Property,
   input: QualifyInput,
+  questions: ScreeningQuestion[] = [],
+  answers: ScreeningAnswer[] = [],
 ): QualifyResult {
   const unit = property.units.find((u) => u.bedrooms === input.bedrooms);
 
@@ -68,7 +101,74 @@ export function evaluateQualification(
     };
   }
 
+  for (const question of questions) {
+    if (!question.criterion) continue;
+    const answer = answers.find((a) => a.key === question.key);
+    // No answer is not a failure. A caller who was never asked, or whose answer the model
+    // could not type, must not be disqualified by silence — completeness is enforced up front
+    // by missingScreeningKeys instead.
+    if (answer === undefined) continue;
+
+    const reason = failedCriterion(question, answer.value);
+    if (reason) return { qualifies: false, disqualifyReason: reason };
+  }
+
   return { qualifies: true };
+}
+
+/**
+ * Applies one manager-defined criterion to one answer. Returns the reason it failed, or
+ * undefined if it passed.
+ *
+ * A value of the wrong runtime type passes rather than fails, for the same reason a missing
+ * answer does: the caller answered something, we just could not read it, and a person should
+ * never be turned away by our own parsing gap.
+ */
+function failedCriterion(
+  question: ScreeningQuestion,
+  value: string | number | boolean,
+): string | undefined {
+  const criterion = question.criterion;
+  if (!criterion) return undefined;
+
+  switch (criterion.kind) {
+    case "yes_no": {
+      if (typeof value !== "boolean") return undefined;
+      if (value === criterion.mustBe) return undefined;
+      return `${question.question} — answered ${value ? "yes" : "no"}, which does not meet this property's requirement.`;
+    }
+    case "number": {
+      if (typeof value !== "number" || Number.isNaN(value)) return undefined;
+      const passes = criterion.op === "gte" ? value >= criterion.value : value <= criterion.value;
+      if (passes) return undefined;
+      const bound = criterion.op === "gte" ? "at least" : "no more than";
+      return `${question.question} — answered ${value}, but this property requires ${bound} ${criterion.value}.`;
+    }
+    case "choice": {
+      if (typeof value !== "string") return undefined;
+      const normalized = value.trim().toLowerCase();
+      const ok = criterion.allowed.some((a) => a.trim().toLowerCase() === normalized);
+      if (ok) return undefined;
+      return `${question.question} — answered "${value}", which this property does not accept.`;
+    }
+  }
+}
+
+/**
+ * Which criteria questions have not been answered yet. Used to stop a decision being made on
+ * a half-filled screening: an unanswered criterion cannot disqualify (see above), so without
+ * this check a caller could qualify simply by never being asked.
+ *
+ * Capture-only questions are deliberately absent from this — a manager who wants a note for
+ * their own reference should not be able to block a lead by adding one.
+ */
+export function missingScreeningKeys(
+  questions: ScreeningQuestion[],
+  answers: ScreeningAnswer[],
+): string[] {
+  return questions
+    .filter((q) => q.criterion && !answers.some((a) => a.key === q.key))
+    .map((q) => q.key);
 }
 
 /** The five fields that must all be present before a qualification decision is meaningful. */
@@ -88,4 +188,95 @@ export function hasAllQualificationFields(input: {
     Boolean(input.callerName) &&
     Boolean(input.callerPhone)
   );
+}
+
+/**
+ * Turns whatever the model put in `screening_answers` into typed values the rules can use.
+ *
+ * The model is asked for a JSON object keyed by question key, and usually delivers exactly
+ * that. This exists for when it doesn't: "yes" instead of true, "$1,200" instead of 1200, a
+ * choice in different casing than the manager typed. The stored answerKind tells us what the
+ * value was supposed to be, so the conversion is deterministic rather than a guess.
+ *
+ * Anything that cannot be converted is DROPPED rather than coerced to a default. A dropped
+ * answer reads downstream as "not answered", which means the caller gets asked again instead
+ * of being judged on a value we invented for them.
+ */
+export function coerceScreeningAnswers(
+  questions: ScreeningQuestion[],
+  raw: unknown,
+): ScreeningAnswer[] {
+  const parsed = parseAnswerBag(raw);
+  if (!parsed) return [];
+
+  const answers: ScreeningAnswer[] = [];
+  for (const question of questions) {
+    const value = coerceOne(question, parsed[question.key]);
+    if (value !== undefined) answers.push({ key: question.key, value });
+  }
+  return answers;
+}
+
+/** Accepts the JSON string the tool schema asks for, or an already-parsed object. */
+function parseAnswerBag(raw: unknown): Record<string, unknown> | undefined {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // A non-JSON string means the model ignored the format. Nothing here is salvageable
+    // without guessing which answer belongs to which question, so treat it as no answers.
+  }
+  return undefined;
+}
+
+const TRUEY = new Set(["true", "yes", "y", "yeah", "yep", "correct", "1"]);
+const FALSEY = new Set(["false", "no", "n", "nope", "none", "0"]);
+
+function coerceOne(
+  question: ScreeningQuestion,
+  value: unknown,
+): string | number | boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+
+  switch (question.answerKind) {
+    case "yes_no": {
+      if (typeof value === "boolean") return value;
+      if (typeof value === "number") return value === 1 ? true : value === 0 ? false : undefined;
+      if (typeof value !== "string") return undefined;
+      const word = value.trim().toLowerCase();
+      if (TRUEY.has(word)) return true;
+      if (FALSEY.has(word)) return false;
+      return undefined;
+    }
+    case "number": {
+      if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+      if (typeof value !== "string") return undefined;
+      // Strips currency symbols, thousands separators and stray words ("about 720").
+      const digits = value.replace(/[^0-9.\-]/g, "");
+      if (!digits || digits === "-" || digits === ".") return undefined;
+      const parsed = Number.parseFloat(digits);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    case "choice": {
+      if (typeof value !== "string") return undefined;
+      const word = value.trim().toLowerCase();
+      if (!word) return undefined;
+      // Returns the manager's own spelling, not the caller's, so stored answers and the
+      // criterion's allowed list stay directly comparable.
+      const match = (question.choices ?? []).find((c) => c.trim().toLowerCase() === word);
+      return match ?? undefined;
+    }
+    case "text": {
+      const text = typeof value === "string" ? value.trim() : String(value).trim();
+      return text || undefined;
+    }
+  }
 }

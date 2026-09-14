@@ -311,6 +311,15 @@ export async function deleteKbDoc(docId: string, ragIndexId?: string) {
   });
 }
 
+/**
+ * Deleting an agent is permanent and is not implied by deleting anything in Convex — an agent
+ * row removed from the database leaves its ElevenLabs counterpart running and billable. Every
+ * teardown path has to call this explicitly.
+ */
+export function deleteAgent(agentId: string) {
+  return request<void>(`/convai/agents/${agentId}`, { method: "DELETE" });
+}
+
 // --- Account --------------------------------------------------------------
 
 export function getSubscription() {

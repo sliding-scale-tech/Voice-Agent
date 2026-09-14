@@ -1,23 +1,23 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
-import { currentUser } from "./authz";
+import { currentOrg } from "./authz";
 
 // --- Reads ----------------------------------------------------------------
 
 /**
- * This table has no userId column of its own — access is controlled through the parent
+ * This table has no orgId column of its own — access is controlled through the parent
  * conversation instead, the same way conversations.transcript does it. A conversation with no
- * owner (the public landing-page demo, or a phone call not yet reconciled) stays readable by
- * anyone who already has its id, exactly as before this migration.
+ * team (the public landing-page demo, or a phone call not yet reconciled) stays readable by
+ * anyone who already has its id.
  */
 export const forConversation = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
     const conv = await ctx.db.get(args.conversationId);
     if (!conv) return null;
-    if (conv.userId) {
-      const user = await currentUser(ctx);
-      if (!user || user._id !== conv.userId) return null;
+    if (conv.orgId) {
+      const org = await currentOrg(ctx);
+      if (!org || org.orgId !== conv.orgId) return null;
     }
     const rows = await ctx.db.query("qualifications").collect();
     return rows.find((r) => r.conversationId === args.conversationId) ?? null;
@@ -55,6 +55,15 @@ export const upsertByConversationId = internalMutation({
     disqualifyReason: v.optional(v.string()),
     tourSlot: v.optional(v.string()),
     tourConfirmed: v.optional(v.boolean()),
+    screeningAnswers: v.optional(
+      v.array(
+        v.object({
+          key: v.string(),
+          question: v.string(),
+          value: v.union(v.string(), v.number(), v.boolean()),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const { elevenLabsConversationId, ...fields } = args;

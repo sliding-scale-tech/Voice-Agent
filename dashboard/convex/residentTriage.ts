@@ -1,7 +1,7 @@
 import { SEVERITY_RUBRIC } from "./severity";
 
 /**
- * The resident-triage instructions for Sara's system prompt.
+ * The resident-triage instructions for Sarah's system prompt.
  *
  * This lives in its own module, not in agents.ts, for one specific reason: the Settings page
  * imports it to offer an "insert into prompt" button, and agents.ts defines Convex queries and

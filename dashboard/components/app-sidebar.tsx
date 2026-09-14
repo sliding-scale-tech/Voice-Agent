@@ -13,6 +13,8 @@ import {
   X,
   Settings,
   BookOpen,
+  ClipboardList,
+  UserPlus,
   Users,
   MessageCircle,
   ChevronDown,
@@ -20,11 +22,19 @@ import {
   Check,
 } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 // Messages, WhatsApp, and Agent are intentionally hidden from nav for now — the route, page,
 // and backend all still work for each, they're just not linked to from anywhere. Flip
 // `hidden` back off to bring any of them back into the nav with no other changes needed.
-const ALL_LINKS = [
+const ALL_LINKS: Array<{
+  href: string;
+  label: string;
+  icon: typeof Phone;
+  hidden: boolean;
+  adminOnly?: boolean;
+}> = [
   { href: "/call", label: "Call", icon: Phone, hidden: false },
   { href: "/leads", label: "Leads", icon: History, hidden: false },
   { href: "/tenants", label: "Tenants", icon: Users, hidden: false },
@@ -32,6 +42,11 @@ const ALL_LINKS = [
   { href: "/messages", label: "Messages", icon: MessageSquare, hidden: true },
   { href: "/docs", label: "Knowledge", icon: BookOpen, hidden: false },
   { href: "/property", label: "Property", icon: Building2, hidden: false },
+  { href: "/screening", label: "Screening", icon: ClipboardList, hidden: false },
+  // Visible to everyone: members get a read-only roster so they can see who they share the
+  // dashboard with. The page itself hides every control they cannot use, and convex/team.ts
+  // re-checks the role on every write — the nav flag was never the boundary.
+  { href: "/team", label: "Team", icon: UserPlus, hidden: false },
   { href: "/settings", label: "Agent", icon: Settings, hidden: true },
 ];
 
@@ -39,13 +54,33 @@ const LINKS = ALL_LINKS.filter((l) => !l.hidden);
 
 // The bottom nav only has room for a handful of items; the rest live in the "More" sheet.
 const BOTTOM_NAV_LINKS = LINKS.filter((l) => ["/call", "/leads", "/tenants"].includes(l.href));
-const MORE_LINKS = LINKS.filter((l) => ["/whatsapp", "/property", "/docs", "/settings"].includes(l.href));
+const MORE_LINKS = LINKS.filter((l) =>
+  ["/whatsapp", "/property", "/screening", "/docs", "/team", "/settings"].includes(l.href),
+);
+
+/**
+ * Hides admin-only tabs from members.
+ *
+ * Nothing is marked adminOnly today — Team is visible to everyone and restricts itself — but
+ * the mechanism stays for the finer-grained limits planned later.
+ *
+ * Undefined while the query is in flight, and null for someone with no team — both resolve to
+ * "not an admin", so an admin-only tab never flashes into view before we know it belongs there.
+ */
+function useIsOrgAdmin() {
+  return useQuery(api.team.overview)?.isAdmin ?? false;
+}
+
+function visibleLinks(links: typeof LINKS, isAdmin: boolean) {
+  return links.filter((link) => !link.adminOnly || isAdmin);
+}
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const isAdmin = useIsOrgAdmin();
   return (
     <nav className="flex flex-1 flex-col gap-1.5">
-      {LINKS.map((link) => {
+      {visibleLinks(LINKS, isAdmin).map((link) => {
         const active = pathname === link.href;
         const Icon = link.icon;
         return (
@@ -170,7 +205,7 @@ function Brand({
         S
       </div>
       <div className="min-w-0 flex-1 leading-tight">
-        <div className="text-sm font-semibold text-sidebar-foreground">Sara</div>
+        <div className="text-sm font-semibold text-sidebar-foreground">Sarah</div>
         <div className="text-[11px] text-sidebar-foreground/50">Leasing Assistant</div>
       </div>
       {onAccountClick ? (
@@ -275,6 +310,7 @@ function StatusCard() {
 export function AppSidebar() {
   const [moreOpen, setMoreOpen] = useState(false);
   const pathname = usePathname();
+  const isAdmin = useIsOrgAdmin();
   const moreActive = MORE_LINKS.some((l) => l.href === pathname);
 
   return (
@@ -355,7 +391,7 @@ export function AppSidebar() {
                 </button>
               </div>
               <div className="flex flex-col gap-1">
-                {MORE_LINKS.map((link) => {
+                {visibleLinks(MORE_LINKS, isAdmin).map((link) => {
                   const active = pathname === link.href;
                   const Icon = link.icon;
                   return (

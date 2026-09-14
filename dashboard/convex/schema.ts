@@ -16,7 +16,64 @@ export default defineSchema({
     .index("by_clerk_id", ["clerkId"])
     .index("by_email", ["email"]),
 
+  // --- Teams ---------------------------------------------------------------
+  //
+  // Organizations live here rather than in Clerk. Clerk still owns identity — sign-in, OAuth,
+  // sessions, the user webhook — but a person belongs to exactly one team in this product, and
+  // Clerk Organizations is built for the opposite case: several orgs per user with switching.
+  // Modelling one-of-one through it meant carrying an "active organization" on the session, a
+  // choose-organization task, compact org claims in the token and ticket redemption on invite
+  // links — four moving parts to express a single row.
+  organizations: defineTable({
+    name: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }),
+
+  // One row per person per team. The unique index is what makes "one team per person" a fact
+  // about the data rather than a convention: authz.currentOrg reads a single membership and
+  // there is nothing to disambiguate.
+  memberships: defineTable({
+    orgId: v.id("organizations"),
+    userId: v.id("users"),
+    // Deliberately a plain union and not a Clerk permission catalog — the finer-grained limits
+    // discussed for later are a change to this column, not a new authorization system.
+    role: v.union(v.literal("admin"), v.literal("member")),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_org", ["orgId"]),
+
+  // Pending invitations.
+  //
+  // Only a SHA-256 of the token is stored. The raw token exists in the invite email and in the
+  // invitee's URL, never at rest here, so a leak of this table cannot be replayed into
+  // somebody's team. Expiry and single-use (acceptedAt/revokedAt) are enforced on redemption.
+  invites: defineTable({
+    orgId: v.id("organizations"),
+    email: v.string(), // always lowercased, so lookups cannot miss on casing
+    role: v.union(v.literal("admin"), v.literal("member")),
+    tokenHash: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_org", ["orgId"])
+    .index("by_email", ["email"]),
+
   agents: defineTable({
+    // The Clerk organization this row belongs to. Every dashboard table is keyed by org rather
+    // than by user: a team shares one agent, one property, one knowledge base and one lead
+    // list, so ownership has to sit on the team, not on whoever happened to create it.
+    //
+    // Required: every row is backfilled and every insert path stamps it.
+    orgId: v.string(),
+    // Kept alongside orgId as "who created this", not as an access key. Nothing scopes on it
+    // any more — see convex/authz.ts.
     userId: v.id("users"),
     elevenLabsAgentId: v.string(),
     name: v.string(),
@@ -26,12 +83,14 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_elevenlabs_id", ["elevenLabsAgentId"])
+    .index("by_org", ["orgId"])
     .index("by_user", ["userId"]),
 
   conversations: defineTable({
     // Absent for the public landing-page demo (never signed in) and, briefly, for a phone
     // call before the post-call webhook resolves and backfills it — see ingestFromWebhook.
     userId: v.optional(v.id("users")),
+    orgId: v.optional(v.string()),
     agentId: v.id("agents"),
     elevenLabsConversationId: v.optional(v.string()),
     channel: v.union(v.literal("browser"), v.literal("phone")),
@@ -68,6 +127,7 @@ export default defineSchema({
     // Powers the Leads page: one signed-in user's calls, newest first, without scanning
     // every other user's rows to find them.
     .index("by_user_and_started", ["userId", "startedAt"])
+    .index("by_org_and_started", ["orgId", "startedAt"])
     .index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"]),
 
   messages: defineTable({
@@ -81,6 +141,10 @@ export default defineSchema({
   }).index("by_conversation", ["conversationId"]),
 
   docs: defineTable({
+    // Required: every row is backfilled (orgMigration.backfill) and every insert path stamps
+    // it, so allowing undefined here would only reintroduce a "which rows are unowned?" branch
+    // that no longer has a real case behind it.
+    orgId: v.string(),
     userId: v.id("users"),
     title: v.string(),
     body: v.string(),
@@ -96,6 +160,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_sync_state", ["syncState"])
+    .index("by_org", ["orgId"])
     .index("by_user", ["userId"]),
 
   usage: defineTable({
@@ -135,6 +200,10 @@ export default defineSchema({
   }),
 
   properties: defineTable({
+    // Required: every row is backfilled (orgMigration.backfill) and every insert path stamps
+    // it, so allowing undefined here would only reintroduce a "which rows are unowned?" branch
+    // that no longer has a real case behind it.
+    orgId: v.string(),
     userId: v.id("users"),
     name: v.string(),
     units: v.array(
@@ -148,7 +217,9 @@ export default defineSchema({
     petsAllowed: v.boolean(),
     moveInWindowDays: v.number(),
     updatedAt: v.number(),
-  }).index("by_user", ["userId"]),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_user", ["userId"]),
 
   // Feedback from the landing page's "Try yourself" demo only — never from the dashboard's
   // own /call, where a customer testing their own agent has no reason to rate it.
@@ -187,14 +258,93 @@ export default defineSchema({
     disqualifyReason: v.optional(v.string()),
     tourSlot: v.optional(v.string()),
     tourConfirmed: v.boolean(),
+
+    // Answers to the property manager's own pre-screening questions (see screeningQuestions).
+    // `question` is denormalized on purpose: a manager who later rewrites or deletes a
+    // question must not retroactively change what an old lead is recorded as having answered.
+    screeningAnswers: v.optional(
+      v.array(
+        v.object({
+          key: v.string(),
+          question: v.string(),
+          value: v.union(v.string(), v.number(), v.boolean()),
+        }),
+      ),
+    ),
     updatedAt: v.number(),
   }).index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"]),
+
+  // Extra questions this property manager wants Sarah to ask every leasing caller, on top of
+  // the five that are built in. Data, not prompt text: `key` becomes a property on that
+  // manager's own check_qualification tool schema, so the model normalizes the spoken answer
+  // into a real boolean/number/string exactly the way it already does for pets_wanted.
+  //
+  // `criterion` absent means capture-only — the answer is recorded on the lead and can never
+  // affect qualification. Present means evaluateQualification applies it as a real rule. That
+  // toggle is per question, deliberately: most managers want a mix of both.
+  screeningQuestions: defineTable({
+    // Required: every row is backfilled (orgMigration.backfill) and every insert path stamps
+    // it, so allowing undefined here would only reintroduce a "which rows are unowned?" branch
+    // that no longer has a real case behind it.
+    orgId: v.string(),
+    userId: v.id("users"),
+    // Stable snake_case identifier, generated once at creation and never rewritten. It is the
+    // tool-schema property name AND the join key on qualifications.screeningAnswers, so
+    // editing a question's wording must not change it or old answers orphan themselves.
+    key: v.string(),
+    question: v.string(),
+    answerKind: v.union(
+      v.literal("yes_no"),
+      v.literal("number"),
+      v.literal("choice"),
+      v.literal("text"),
+    ),
+    // Only meaningful for answerKind "choice".
+    choices: v.optional(v.array(v.string())),
+    // "text" answers can never carry a criterion — free prose is not something a pure
+    // function can judge, and qualification must stay a code decision. Enforced in
+    // screening.save, not just here.
+    criterion: v.optional(
+      v.union(
+        v.object({ kind: v.literal("yes_no"), mustBe: v.boolean() }),
+        v.object({
+          kind: v.literal("number"),
+          op: v.union(v.literal("gte"), v.literal("lte")),
+          value: v.number(),
+        }),
+        v.object({ kind: v.literal("choice"), allowed: v.array(v.string()) }),
+      ),
+    ),
+    order: v.number(),
+    enabled: v.boolean(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_user", ["userId"]),
+
+  // Which of the five built-in questions this manager has switched off. One row per user,
+  // holding only the exceptions — no row, or an empty array, means all five are asked, so a
+  // fresh account behaves exactly as it did before any of this existed.
+  //
+  // Only the keys listed in coreQuestions.DISABLEABLE_KEYS can appear here. `bedrooms` and
+  // `contact` are structural and are filtered out on write; see convex/coreQuestions.ts.
+  screeningBuiltins: defineTable({
+    // Required: every row is backfilled (orgMigration.backfill) and every insert path stamps
+    // it, so allowing undefined here would only reintroduce a "which rows are unowned?" branch
+    // that no longer has a real case behind it.
+    orgId: v.string(),
+    userId: v.id("users"),
+    disabled: v.array(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_user", ["userId"]),
 
   // Keyed by the ElevenLabs conversation id for the same reason as qualifications above.
   //
   // `category` is deliberately v.string() and not a union: the agent fills it freehand, and a
   // single off-script value ("plumbing" instead of "maintenance") against a union would throw
-  // inside the mutation, fail the tool call, and leave Sara telling the caller that something
+  // inside the mutation, fail the tool call, and leave Sarah telling the caller that something
   // broke mid-call. Normalize for display, store what was said.
   tenantIssues: defineTable({
     // Resolved from the call's conversations row where possible (see tenants.logIssue) and
@@ -203,6 +353,7 @@ export default defineSchema({
     // qualifications (access-controlled via its parent conversation) this needs its own
     // indexed column to scope the list itself.
     userId: v.optional(v.id("users")),
+    orgId: v.optional(v.string()),
     elevenLabsConversationId: v.string(),
     conversationId: v.optional(v.id("conversations")),
 
@@ -228,6 +379,7 @@ export default defineSchema({
   })
     .index("by_elevenlabs_conversation_id", ["elevenLabsConversationId"])
     .index("by_created", ["createdAt"])
+    .index("by_org", ["orgId"])
     .index("by_user", ["userId"]),
 
   // --- WhatsApp automation ------------------------------------------------

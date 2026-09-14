@@ -13,7 +13,7 @@ import {
   authButtonClassName,
   authFieldClassName,
 } from "@/components/auth-shell";
-import { goAfterAuth } from "@/lib/auth-navigate";
+import { afterAuthDestination, goAfterAuth } from "@/lib/auth-navigate";
 
 export function SignInForm() {
   const { signIn, errors, fetchStatus } = useSignIn();
@@ -23,7 +23,7 @@ export function SignInForm() {
   const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => {
-    if (isSignedIn) router.replace("/call");
+    if (isSignedIn) router.replace(afterAuthDestination());
   }, [isSignedIn, router]);
 
   const busy = fetchStatus === "fetching";
@@ -76,7 +76,7 @@ export function SignInForm() {
   const handleGoogle = async () => {
     await signIn.sso({
       strategy: "oauth_google",
-      redirectUrl: "/call",
+      redirectUrl: afterAuthDestination(),
       redirectCallbackUrl: "/sso-callback",
     });
   };

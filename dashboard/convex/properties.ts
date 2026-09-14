@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { currentUser, requireUser } from "./authz";
+import { currentOrg, requireOrg } from "./authz";
 
 const DEFAULT_PROPERTY = {
   name: "Maple Court Apartments",
@@ -17,7 +17,7 @@ const DEFAULT_PROPERTY = {
 // --- Reads ----------------------------------------------------------------
 
 /**
- * The signed-in user's own property. Before they have one — a brief window before their
+ * The signed-in team's property. Before they have one — a brief window before their
  * first call or Settings save triggers agents.ensure to actually clone it — this previews the
  * same template every new user gets seeded from, so what's on screen doesn't jump the moment
  * a real row lands.
@@ -25,22 +25,21 @@ const DEFAULT_PROPERTY = {
 export const current = query({
   args: {},
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
-    if (!user) return { _id: undefined, ...DEFAULT_PROPERTY, updatedAt: 0 };
+    const org = await currentOrg(ctx);
+    if (!org) return { _id: undefined, ...DEFAULT_PROPERTY, updatedAt: 0 };
     const existing = await ctx.db
       .query("properties")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_org", (q) => q.eq("orgId", org.orgId))
       .first();
     if (existing) return existing;
 
-    // Same "pre-multi-tenancy agent's owner" resolution as agents.templateOwnerId — inlined
-    // rather than called, since a query can't ctx.runQuery another Convex function the way an
-    // action can.
-    const templateUserId = (await ctx.db.query("agents").first())?.userId;
-    const template = templateUserId
+    // Same template resolution as agents.templateOrgId — inlined rather than called, since a
+    // query can't ctx.runQuery another Convex function the way an action can.
+    const templateOrgId = (await ctx.db.query("agents").first())?.orgId;
+    const template = templateOrgId
       ? await ctx.db
           .query("properties")
-          .withIndex("by_user", (q) => q.eq("userId", templateUserId))
+          .withIndex("by_org", (q) => q.eq("orgId", templateOrgId))
           .first()
       : null;
     return template ?? { _id: undefined, ...DEFAULT_PROPERTY, updatedAt: 0 };
@@ -48,19 +47,18 @@ export const current = query({
 });
 
 /**
- * `userId` undefined resolves the pre-multi-tenancy fallback — see agents.currentInternal for
- * why: a phone call's tool webhook that can't yet tell which user placed the call, or the
- * public landing-page demo, both need *some* property to answer from, exactly as before this
- * migration.
+ * `orgId` undefined resolves the fallback — see agents.currentInternal for why: a phone call's
+ * tool webhook that can't yet tell which team placed the call, or the public landing-page demo,
+ * both need *some* property to answer from.
  */
 export const currentInternal = internalQuery({
-  args: { userId: v.optional(v.id("users")) },
+  args: { orgId: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const userId = args.userId;
-    const existing = userId
+    const orgId = args.orgId;
+    const existing = orgId
       ? await ctx.db
           .query("properties")
-          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .withIndex("by_org", (q) => q.eq("orgId", orgId))
           .first()
       : await ctx.db.query("properties").first();
     if (existing) return existing;
@@ -69,29 +67,33 @@ export const currentInternal = internalQuery({
 });
 
 /**
- * Seeds a brand-new user's property as a copy of the template's — see agents.templateOwnerId.
- * A no-op if this user already has one (never clobbers real work) or if there's no template to
- * copy (a from-scratch install with no property ever saved, in which case agents.ensure's own
- * DEFAULT_PROPERTY-equivalent fallback in createAgent's config still applies via check_availability
- * reading currentInternal with no match).
+ * Seeds a brand-new team's property as a copy of the template's — see agents.templateOrgId.
+ * A no-op if this team already has one (never clobbers real work) or if there's no template to
+ * copy (a from-scratch install with no property ever saved, in which case check_availability
+ * reading currentInternal with no match still falls back to DEFAULT_PROPERTY).
  */
-export const cloneForUser = internalMutation({
-  args: { userId: v.id("users"), templateUserId: v.optional(v.id("users")) },
+export const cloneForOrg = internalMutation({
+  args: {
+    orgId: v.string(),
+    userId: v.id("users"),
+    templateOrgId: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("properties")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
       .first();
-    const templateUserId = args.templateUserId;
-    if (existing || !templateUserId) return;
+    const templateOrgId = args.templateOrgId;
+    if (existing || !templateOrgId) return;
 
     const template = await ctx.db
       .query("properties")
-      .withIndex("by_user", (q) => q.eq("userId", templateUserId))
+      .withIndex("by_org", (q) => q.eq("orgId", templateOrgId))
       .first();
     if (!template) return;
 
     await ctx.db.insert("properties", {
+      orgId: args.orgId,
       userId: args.userId,
       name: template.name,
       units: template.units,
@@ -101,10 +103,13 @@ export const cloneForUser = internalMutation({
     });
 
     // The auto-generated property doc regenerates from whatever property row exists, so this
-    // gives the new user their own copy of it rather than cloning the template's verbatim
+    // gives the new team their own copy of it rather than cloning the template's verbatim
     // (which would still be correct today since the content is identical, but would drift
     // stale the moment either property is edited).
-    await ctx.scheduler.runAfter(0, internal.docs.syncPropertyDoc, { userId: args.userId });
+    await ctx.scheduler.runAfter(0, internal.docs.syncPropertyDoc, {
+      orgId: args.orgId,
+      userId: args.userId,
+    });
   },
 });
 
@@ -125,15 +130,15 @@ export const save = mutation({
     moveInWindowDays: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const { orgId, user } = await requireOrg(ctx);
     const existing = await ctx.db
       .query("properties")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .first();
-    const row = { ...args, userId: user._id, updatedAt: Date.now() };
+    const row = { ...args, orgId, userId: user._id, updatedAt: Date.now() };
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("properties", row);
 
-    await ctx.scheduler.runAfter(0, internal.docs.syncPropertyDoc, { userId: user._id });
+    await ctx.scheduler.runAfter(0, internal.docs.syncPropertyDoc, { orgId, userId: user._id });
   },
 });

@@ -13,7 +13,7 @@ import {
   authButtonClassName,
   authFieldClassName,
 } from "@/components/auth-shell";
-import { goAfterAuth } from "@/lib/auth-navigate";
+import { afterAuthDestination, goAfterAuth } from "@/lib/auth-navigate";
 
 export function SignUpForm() {
   const { signUp, errors, fetchStatus } = useSignUp();
@@ -21,7 +21,7 @@ export function SignUpForm() {
   const router = useRouter();
 
   useEffect(() => {
-    if (isSignedIn) router.replace("/call");
+    if (isSignedIn) router.replace(afterAuthDestination());
   }, [isSignedIn, router]);
 
   const busy = fetchStatus === "fetching";
@@ -29,7 +29,7 @@ export function SignUpForm() {
   const handleGoogle = async () => {
     await signUp.sso({
       strategy: "oauth_google",
-      redirectUrl: "/call",
+      redirectUrl: afterAuthDestination(),
       redirectCallbackUrl: "/sso-callback",
     });
   };
@@ -126,7 +126,7 @@ export function SignUpForm() {
   return (
     <AuthShell
       title="Create an account"
-      subtitle="Set up access to the Sara leasing dashboard."
+      subtitle="Set up access to the Sarah leasing dashboard."
       footer={
         <>
           Already have an account?{" "}

@@ -1,4 +1,6 @@
+import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internalQuery } from "./_generated/server";
 import type { ActionCtx, QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 
@@ -45,3 +47,107 @@ export async function requireUserId(ctx: ActionCtx): Promise<Id<"users">> {
   if (!user) throw new Error("User record not found — try again in a moment.");
   return user._id;
 }
+
+// --- Organizations --------------------------------------------------------
+
+/**
+ * The team a request belongs to, plus that person's role in it.
+ *
+ * Resolved from the `memberships` table, not from the auth token. Clerk still owns identity —
+ * sign-in, OAuth, sessions, the user webhook — but teams are this database's own concern.
+ * That swap removed four moving parts Clerk Organizations needed to express one-of-one: an
+ * "active organization" carried on the session, a choose-organization task, org claims packed
+ * into the token, and ticket redemption on invite links.
+ *
+ * A person belongs to at most one team, so there is nothing to disambiguate here and no
+ * concept of "which org is selected".
+ */
+export type OrgContext = {
+  orgId: Id<"organizations">;
+  role: "admin" | "member";
+  isAdmin: boolean;
+  user: Doc<"users">;
+};
+
+/**
+ * Null rather than throwing, for the same reason currentUser is: a dashboard query wants to
+ * render an empty state, not crash. A signed-in user can legitimately have no team for a
+ * moment — between the Clerk webhook creating their user row and their team being created.
+ */
+export async function currentOrg(ctx: QueryCtx | MutationCtx): Promise<OrgContext | null> {
+  const user = await currentUser(ctx);
+  if (!user) return null;
+
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_user", (q) => q.eq("userId", user._id))
+    .first();
+  if (!membership) return null;
+
+  return {
+    orgId: membership.orgId,
+    role: membership.role,
+    isAdmin: membership.role === "admin",
+    user,
+  };
+}
+
+export async function requireOrg(ctx: QueryCtx | MutationCtx): Promise<OrgContext> {
+  const org = await currentOrg(ctx);
+  if (!org) throw new Error("No team found for this account. Try signing in again.");
+  return org;
+}
+
+/**
+ * Guards the things only an admin may do — inviting, removing members, renaming the team.
+ * Checked server-side and not merely hidden in the sidebar: a hidden tab is a courtesy, this
+ * is the actual boundary.
+ */
+export async function requireOrgAdmin(ctx: QueryCtx | MutationCtx): Promise<OrgContext> {
+  const org = await requireOrg(ctx);
+  if (!org.isAdmin) throw new Error("Only a team admin can do that.");
+  return org;
+}
+
+/** Action-context equivalent of requireOrg — actions have ctx.auth but no ctx.db. */
+export async function requireOrgId(ctx: ActionCtx): Promise<{
+  orgId: Id<"organizations">;
+  role: "admin" | "member";
+  isAdmin: boolean;
+  userId: Id<"users">;
+}> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Not signed in.");
+
+  const resolved = await ctx.runQuery(internal.authz.orgForClerkId, {
+    clerkId: identity.subject,
+  });
+  if (!resolved) throw new Error("No team found for this account. Try signing in again.");
+
+  return {
+    orgId: resolved.orgId,
+    role: resolved.role,
+    isAdmin: resolved.role === "admin",
+    userId: resolved.userId,
+  };
+}
+
+/** Backing query for requireOrgId — an action cannot touch ctx.db directly. */
+export const orgForClerkId = internalQuery({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .unique();
+    if (!user) return null;
+
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .first();
+    if (!membership) return null;
+
+    return { orgId: membership.orgId, role: membership.role, userId: user._id };
+  },
+});

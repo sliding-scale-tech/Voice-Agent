@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { clampSeverity } from "./severity";
 import { realValue, realPhone } from "./sanitize";
-import { currentUser } from "./authz";
+import { currentOrg } from "./authz";
 
 // --- Reads ----------------------------------------------------------------
 
@@ -15,11 +15,11 @@ import { currentUser } from "./authz";
 export const issues = query({
   args: {},
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
-    if (!user) return [];
+    const org = await currentOrg(ctx);
+    if (!org) return [];
     const rows = await ctx.db
       .query("tenantIssues")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_org", (q) => q.eq("orgId", org.orgId))
       .collect();
 
     // Join the call itself so the row can expand into a transcript the same way the Leads
@@ -54,11 +54,11 @@ export const issues = query({
 export const stats = query({
   args: {},
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
-    if (!user) return { openIssues: 0, highSeverityOpen: 0, resolvedIssues: 0 };
+    const org = await currentOrg(ctx);
+    if (!org) return { openIssues: 0, highSeverityOpen: 0, resolvedIssues: 0 };
     const rows = await ctx.db
       .query("tenantIssues")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_org", (q) => q.eq("orgId", org.orgId))
       .collect();
     const open = rows.filter((r) => r.status === "open");
 
@@ -147,6 +147,7 @@ export const logIssue = internalMutation({
 
     return ctx.db.insert("tenantIssues", {
       userId: conv?.userId,
+      orgId: conv?.orgId,
       elevenLabsConversationId,
       reason: args.reason,
       severity: clampSeverity(severity),
@@ -161,8 +162,8 @@ export const logIssue = internalMutation({
 /**
  * Called by the post-call webhook. Links the Convex conversation, backfills the telephony
  * number (the only way a browser call — or a call where the agent never got a number out
- * loud — ends up with a usable callback number on the record), and backfills userId for a
- * phone call whose owner wasn't yet resolvable when logIssue first ran.
+ * loud — ends up with a usable callback number on the record), and backfills the owning team
+ * for a phone call that wasn't yet resolvable when logIssue first ran.
  */
 export const linkConversation = internalMutation({
   args: {
@@ -170,6 +171,7 @@ export const linkConversation = internalMutation({
     conversationId: v.id("conversations"),
     callerNumber: v.optional(v.string()),
     userId: v.optional(v.id("users")),
+    orgId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const issue = await ctx.db
@@ -186,6 +188,7 @@ export const linkConversation = internalMutation({
     };
     if (args.callerNumber && !issue.callerNumber) patch.callerNumber = args.callerNumber;
     if (args.userId && !issue.userId) patch.userId = args.userId;
+    if (args.orgId && !issue.orgId) patch.orgId = args.orgId;
 
     await ctx.db.patch(issue._id, patch);
   },
@@ -201,9 +204,9 @@ export const updateIssue = mutation({
     status: v.optional(v.union(v.literal("open"), v.literal("resolved"))),
   },
   handler: async (ctx, args) => {
-    const user = await currentUser(ctx);
+    const org = await currentOrg(ctx);
     const issue = await ctx.db.get(args.issueId);
-    if (!issue || !user || issue.userId !== user._id) return;
+    if (!issue || !org || issue.orgId !== org.orgId) return;
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.reason !== undefined) patch.reason = args.reason;
@@ -228,9 +231,9 @@ export const updateIssue = mutation({
 export const removeIssue = mutation({
   args: { issueId: v.id("tenantIssues") },
   handler: async (ctx, args) => {
-    const user = await currentUser(ctx);
+    const org = await currentOrg(ctx);
     const issue = await ctx.db.get(args.issueId);
-    if (!issue || !user || issue.userId !== user._id) return;
+    if (!issue || !org || issue.orgId !== org.orgId) return;
     await ctx.db.delete(args.issueId);
   },
 });
