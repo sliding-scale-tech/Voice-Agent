@@ -181,7 +181,6 @@ export default defineSchema({
     // Free text rather than a union: this mirrors tenantIssues.category above — a label like
     // "Leasing" or "HR" is just a display tag, not something the app branches logic on.
     category: v.optional(v.string()),
-    assignee: v.optional(v.string()),
     dueDate: v.optional(v.number()),
     tags: v.optional(v.array(v.string())),
     createdAt: v.number(),
@@ -190,18 +189,23 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_user", ["userId"]),
 
-  // One row per comment on the detail panel's Comments thread. Kept in its own table rather
-  // than an array on the task doc so a long thread never has to be rewritten wholesale to add
-  // one message — same reasoning as messages/smsMessages elsewhere in this schema.
-  taskComments: defineTable({
-    taskId: v.id("tasks"),
-    // Denormalized like screeningQuestions.question: the poster's name at the time they wrote
-    // it, so a later name change doesn't rewrite history.
-    authorName: v.string(),
-    authorUserId: v.id("users"),
-    text: v.string(),
+  // Files attached to a task from the Create task modal or the detail panel's Attach files
+  // button. `taskId` is optional because the create modal uploads to storage (so the file picks
+  // up an id immediately) before the task itself exists — tasks.create attaches these rows to
+  // the new task right after inserting it, the same two-step shape docs.ts uses for uploads.
+  taskAttachments: defineTable({
+    taskId: v.optional(v.id("tasks")),
+    orgId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    uploadedByUserId: v.id("users"),
+    // Denormalized like screeningQuestions.question: the uploader's name at the time they
+    // uploaded it, so a later name change doesn't rewrite history.
+    uploadedByName: v.string(),
     createdAt: v.number(),
-  }).index("by_task", ["taskId"]),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_org", ["orgId"]),
 
   usage: defineTable({
     monthKey: v.string(), // "2026-07"

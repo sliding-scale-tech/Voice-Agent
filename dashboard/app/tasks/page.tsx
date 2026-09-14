@@ -4,7 +4,6 @@ import { useMutation, useQuery } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlignLeft,
-  AtSign,
   Bold,
   Calendar,
   ChevronDown,
@@ -13,12 +12,12 @@ import {
   List as ListIcon,
   Paperclip,
   Plus,
-  Send,
   Tag,
-  User,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useToast } from "@/components/toast";
@@ -33,16 +32,15 @@ type Task = {
   status: Status;
   priority: Priority;
   category?: string;
-  assignee?: string;
   dueDate?: number;
   tags?: string[];
 };
 
-type Comment = {
-  _id: Id<"taskComments">;
-  authorName: string;
-  text: string;
-  createdAt: number;
+type Attachment = {
+  _id: Id<"taskAttachments">;
+  fileName: string;
+  url?: string | null;
+  uploadedByName?: string;
 };
 
 const STATUS_META: Record<Status, { label: string; dotClassName: string }> = {
@@ -63,6 +61,24 @@ const PRIORITY_STYLES: Record<Task["priority"], string> = {
   low: "bg-emerald-50 text-emerald-600 border border-emerald-100",
 };
 
+const PRIORITY_DOT: Record<Priority, string> = {
+  low: "bg-emerald-500",
+  medium: "bg-amber-500",
+  high: "bg-rose-500",
+};
+
+const STATUS_OPTIONS = (Object.keys(STATUS_META) as Status[]).map((s) => ({
+  value: s,
+  label: STATUS_META[s].label,
+  icon: <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_META[s].dotClassName}`} />,
+}));
+
+const PRIORITY_OPTIONS = (["low", "medium", "high"] as const).map((p) => ({
+  value: p,
+  label: p[0].toUpperCase() + p.slice(1),
+  icon: <span className={`h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />,
+}));
+
 const CATEGORY_TONES = [
   "bg-blue-50 text-blue-600",
   "bg-purple-50 text-purple-600",
@@ -71,25 +87,14 @@ const CATEGORY_TONES = [
   "bg-orange-50 text-orange-600",
 ];
 
-const AVATAR_TONES = [
-  "bg-slate-200 text-slate-600",
-  "bg-indigo-100 text-indigo-700",
-  "bg-purple-100 text-purple-700",
-  "bg-blue-100 text-blue-700",
-];
+// Keeps a task row from growing tall/wide when someone tags it heavily — the rest collapse
+// into a "+N" pill (see TaskRow) rather than wrapping the row across multiple lines.
+const MAX_VISIBLE_TAGS = 2;
 
 function hashIndex(value: string, length: number) {
   let hash = 0;
   for (let i = 0; i < value.length; i++) hash = (hash * 31 + value.charCodeAt(i)) | 0;
   return Math.abs(hash) % length;
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
 }
 
 function formatDueDate(dueDate?: number) {
@@ -104,6 +109,136 @@ function formatDueDate(dueDate?: number) {
   tomorrow.setDate(today.getDate() + 1);
   if (sameDay(due, tomorrow)) return "Tomorrow";
   return due.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/**
+ * A custom-styled listbox to replace the browser's native `<select>` popup — that one can't
+ * take Tailwind classes (its option list is drawn by the OS, not the page), which is why the
+ * previous Status/Priority/Assignee dropdowns looked unstyled.
+ *
+ * The open panel renders through a portal into document.body rather than as a normal
+ * absolutely-positioned child: every caller here sits inside a modal or panel with
+ * `overflow-y-auto`, and a panel positioned relative to a scrollable ancestor gets clipped by
+ * that ancestor's edge instead of floating above it. Rendering at the document root and
+ * positioning it with the trigger button's own screen coordinates (via getBoundingClientRect)
+ * avoids that clipping entirely. Closing on scroll, rather than tracking the trigger's position
+ * live, keeps this simple — the alternative (a scroll listener that repositions the panel every
+ * frame) is more machinery than a dropdown needs.
+ */
+function Dropdown<T extends string>({
+  value,
+  options,
+  onChange,
+  buttonClassName,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string; icon?: ReactNode }>;
+  onChange: (value: T) => void;
+  buttonClassName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{
+    left: number;
+    width: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const current = options.find((o) => o.value === value) ?? options[0];
+
+  const openMenu = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // Flip to open upward when there isn't room below — the earlier version always opened
+    // downward and could run off the bottom of the screen for a trigger near it (this is what
+    // was cut off by the Windows taskbar in the reported screenshot).
+    const estimatedHeight = Math.min(options.length * 36 + 8, 256);
+    const openUpward = window.innerHeight - rect.bottom < estimatedHeight + 8 && rect.top > estimatedHeight;
+    const left = Math.min(rect.left, window.innerWidth - rect.width - 8);
+    setCoords(
+      openUpward
+        ? { left, width: rect.width, bottom: window.innerHeight - rect.top + 4 }
+        : { left, width: rect.width, top: rect.bottom + 4 },
+    );
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    // Any ancestor's scroll (the modal body, the page) invalidates `coords`, computed once at
+    // open time — closing is simpler and just as usable as repositioning on every scroll frame.
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        className={`flex h-11 w-full items-center gap-2 rounded-xl border border-input bg-card px-3 text-left text-sm font-medium outline-none focus:ring-2 focus:ring-ring/20 ${
+          buttonClassName ?? ""
+        }`}
+      >
+        {current?.icon}
+        <span className="flex-1 truncate">{current?.label}</span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && coords && typeof document !== "undefined"
+        ? createPortal(
+            <AnimatePresence>
+              <button
+                key="backdrop"
+                type="button"
+                aria-label="Close menu"
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => setOpen(false)}
+              />
+              <motion.div
+                key="panel"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.12 }}
+                style={{
+                  position: "fixed",
+                  top: coords.top,
+                  bottom: coords.bottom,
+                  left: coords.left,
+                  width: coords.width,
+                }}
+                className="z-50 max-h-64 overflow-auto rounded-xl border border-border bg-card py-1 shadow-lg"
+              >
+                {options.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                      opt.value === value ? "bg-accent/60 font-medium text-foreground" : "text-foreground/90"
+                    }`}
+                  >
+                    {opt.icon}
+                    <span className="truncate">{opt.label}</span>
+                  </button>
+                ))}
+              </motion.div>
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
 }
 
 export default function TasksPage() {
@@ -162,7 +297,7 @@ export default function TasksPage() {
 
         {selectedTask ? (
           <div className="w-full shrink-0 xl:sticky xl:top-6 xl:w-[420px]">
-            <TaskDetailPanel task={selectedTask} onClose={() => setSelectedId(null)} />
+            <TaskDetailPanel key={selectedTask._id} task={selectedTask} onClose={() => setSelectedId(null)} />
           </div>
         ) : null}
       </div>
@@ -254,7 +389,6 @@ function TaskRow({
   const done = task.status === "completed";
   const due = formatDueDate(task.dueDate);
   const categoryTone = task.category ? CATEGORY_TONES[hashIndex(task.category, CATEGORY_TONES.length)] : null;
-  const avatarTone = task.assignee ? AVATAR_TONES[hashIndex(task.assignee, AVATAR_TONES.length)] : AVATAR_TONES[0];
 
   return (
     <div
@@ -293,29 +427,23 @@ function TaskRow({
         {task.category ? (
           <span className={`rounded px-2.5 py-1 text-[11px] font-medium ${categoryTone}`}>{task.category}</span>
         ) : null}
-        {task.assignee ? (
+        {(task.tags ?? []).slice(0, MAX_VISIBLE_TAGS).map((tag) => (
           <span
-            title={task.assignee}
-            className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${avatarTone}`}
+            key={tag}
+            className={`rounded px-2.5 py-1 text-[11px] font-medium ${CATEGORY_TONES[hashIndex(tag, CATEGORY_TONES.length)]}`}
           >
-            {initials(task.assignee)}
+            {tag}
+          </span>
+        ))}
+        {(task.tags?.length ?? 0) > MAX_VISIBLE_TAGS ? (
+          <span className="rounded bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            +{(task.tags?.length ?? 0) - MAX_VISIBLE_TAGS}
           </span>
         ) : null}
         <span className="w-12 text-right text-xs text-muted-foreground">{due ?? ""}</span>
       </div>
     </div>
   );
-}
-
-function relativeTime(at: number) {
-  const deltaMs = Math.max(0, Date.now() - at);
-  const minutes = Math.floor(deltaMs / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function toDateInputValue(ms?: number) {
@@ -328,22 +456,43 @@ function toDateInputValue(ms?: number) {
 function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void }) {
   const update = useMutation(api.tasks.update);
   const toggleComplete = useMutation(api.tasks.toggleComplete);
-  const comments = useQuery(api.tasks.comments, { taskId: task._id }) as Comment[] | undefined;
-  const addComment = useMutation(api.tasks.addComment);
+  const attachments = useQuery(api.tasks.attachments, { taskId: task._id }) as Attachment[] | undefined;
+  const generateUploadUrl = useMutation(api.tasks.generateUploadUrl);
+  const attach = useMutation(api.tasks.attach);
+  const removeAttachment = useMutation(api.tasks.removeAttachment);
   const toast = useToast();
 
   const [description, setDescription] = useState(task.description ?? "");
-  const [assignee, setAssignee] = useState(task.assignee ?? "");
   const [newTag, setNewTag] = useState("");
   const [addingTag, setAddingTag] = useState(false);
-  const [comment, setComment] = useState("");
-  const [sendingComment, setSendingComment] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const patch = async (fields: Parameters<typeof update>[0]) => {
     try {
       await update(fields);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not update the task.", "error");
+    }
+  };
+
+  const handleAttachFiles = async (files: FileList) => {
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const uploadUrl = await generateUploadUrl();
+        const uploaded = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        });
+        if (!uploaded.ok) throw new Error("Could not upload the file.");
+        const { storageId } = (await uploaded.json()) as { storageId: Id<"_storage"> };
+        await attach({ storageId, fileName: file.name, taskId: task._id });
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not attach that file.", "error");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -363,20 +512,6 @@ function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void })
 
   const handleRemoveTag = async (tag: string) => {
     await patch({ taskId: task._id, tags: tags.filter((t) => t !== tag) });
-  };
-
-  const handleSendComment = async () => {
-    const text = comment.trim();
-    if (!text) return;
-    setSendingComment(true);
-    try {
-      await addComment({ taskId: task._id, text });
-      setComment("");
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not post that comment.", "error");
-    } finally {
-      setSendingComment(false);
-    }
   };
 
   return (
@@ -410,68 +545,42 @@ function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void })
 
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-5 px-5 py-5">
-          <textarea
+          <RichTextEditor
             value={description}
-            onChange={(event) => setDescription(event.target.value)}
+            onChange={setDescription}
             onBlur={() => {
-              if (description.trim() !== (task.description ?? "")) {
-                void patch({ taskId: task._id, description });
+              const clean = sanitizeHtml(description);
+              if (clean !== sanitizeHtml(task.description ?? "")) {
+                void patch({ taskId: task._id, description: htmlIsBlank(clean) ? "" : clean });
               }
             }}
             placeholder="Add a description…"
-            rows={3}
-            className="w-full resize-none rounded-lg border-0 bg-transparent p-0 text-sm leading-6 text-muted-foreground outline-none placeholder:text-muted-foreground-subtle"
+            onAttachFiles={(files) => void handleAttachFiles(files)}
+            uploading={uploading}
+          />
+
+          <AttachmentList
+            attachments={attachments ?? []}
+            onRemove={(id) => void removeAttachment({ attachmentId: id })}
           />
 
           <div className="grid grid-cols-[88px_1fr] items-center gap-y-4 text-sm">
             <span className="text-muted-foreground">Status</span>
-            <div className="relative">
-              <select
-                value={task.status}
-                onChange={(event) =>
-                  void patch({ taskId: task._id, status: event.target.value as Status })
-                }
-                className="h-9 w-full appearance-none rounded-lg border border-input bg-card pl-3 pr-8 text-sm font-medium outline-none focus:ring-2 focus:ring-ring/20"
-              >
-                {(Object.keys(STATUS_META) as Status[]).map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_META[s].label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            </div>
+            <Dropdown
+              value={task.status}
+              options={STATUS_OPTIONS}
+              onChange={(status) => void patch({ taskId: task._id, status })}
+              buttonClassName="h-9"
+            />
 
             <span className="text-muted-foreground">Priority</span>
-            <div className="relative">
-              <select
-                value={task.priority}
-                onChange={(event) =>
-                  void patch({ taskId: task._id, priority: event.target.value as Priority })
-                }
-                className="h-9 w-full appearance-none rounded-lg border border-input bg-card pl-3 pr-8 text-sm font-medium capitalize outline-none focus:ring-2 focus:ring-ring/20"
-              >
-                {(["low", "medium", "high"] as const).map((p) => (
-                  <option key={p} value={p}>
-                    {p[0].toUpperCase() + p.slice(1)}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            </div>
-
-            <span className="text-muted-foreground">Assignee</span>
-            <input
-              value={assignee}
-              onChange={(event) => setAssignee(event.target.value)}
-              onBlur={() => {
-                if (assignee.trim() !== (task.assignee ?? "")) {
-                  void patch({ taskId: task._id, assignee });
-                }
-              }}
-              placeholder="Unassigned"
-              className="h-9 w-full rounded-lg border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+            <Dropdown
+              value={task.priority}
+              options={PRIORITY_OPTIONS}
+              onChange={(priority) => void patch({ taskId: task._id, priority })}
+              buttonClassName="h-9"
             />
+
 
             <span className="text-muted-foreground">Due date</span>
             <div className="flex items-center gap-1.5">
@@ -547,105 +656,283 @@ function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void })
             </div>
           </div>
         </div>
-
-        <div className="border-t border-border px-5 py-5">
-          <div className="mb-3 flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-foreground">Comments</h3>
-            <span className="text-sm text-muted-foreground">{comments?.length ?? 0}</span>
-          </div>
-
-          <div className="space-y-4">
-            {(comments ?? []).map((c) => {
-              const tone = AVATAR_TONES[hashIndex(c.authorName, AVATAR_TONES.length)];
-              return (
-                <div key={c._id} className="flex items-start gap-2.5">
-                  <span
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${tone}`}
-                  >
-                    {initials(c.authorName)}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-semibold text-foreground">{c.authorName}</span>
-                      <span className="text-xs text-muted-foreground">{relativeTime(c.createdAt)}</span>
-                    </div>
-                    <p className="mt-0.5 text-sm leading-5 text-foreground/90">{c.text}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 border-t border-border px-5 py-3">
-        <input
-          value={comment}
-          onChange={(event) => setComment(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void handleSendComment();
-          }}
-          placeholder="Write a comment…"
-          className="h-10 flex-1 rounded-full border border-input bg-card px-4 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-        />
-        <button
-          type="button"
-          onClick={() => void handleSendComment()}
-          disabled={sendingComment || !comment.trim()}
-          aria-label="Send comment"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Send className="h-4 w-4" />
-        </button>
       </div>
     </motion.div>
   );
 }
 
-const PRIORITY_DOT: Record<Priority, string> = {
-  low: "bg-emerald-500",
-  medium: "bg-amber-500",
-  high: "bg-rose-500",
-};
-
-/** Cosmetic-only toolbar to match the Create task mockup — this page has no rich-text or
- * file-attachment backend, so these buttons are visual affordance, not wired to anything. */
-function DescriptionToolbar() {
-  const icons = [Bold, Italic, LinkIcon, AlignLeft, ListIcon, AtSign];
+function ToolbarButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: typeof Bold;
+  label: string;
+  onClick: () => void;
+}) {
   return (
-    <div className="flex items-center justify-between border-t border-border px-3 py-2">
-      <div className="flex items-center gap-1">
-        {icons.map((Icon, i) => (
-          <span
-            key={i}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground-subtle"
-          >
-            <Icon className="h-3.5 w-3.5" />
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      // Keeps focus (and the current selection/caret) on the editor instead of moving it to
+      // this button — without this, clicking Bold would first blur the editor and lose the
+      // selection execCommand needs to act on.
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/** Strict allowlist run before any editor HTML is sent to Convex: unwraps any element that
+ * isn't in ALLOWED_TAGS to plain text and drops every attribute except a validated `href` on
+ * `<a>`. Runs client-side only (DOMParser) — this page never renders untrusted HTML from
+ * elsewhere, but user-authored HTML from execCommand shouldn't be trusted verbatim either. */
+function sanitizeHtml(html: string): string {
+  if (typeof window === "undefined") return html;
+  const ALLOWED_TAGS = new Set(["B", "STRONG", "I", "EM", "A", "UL", "OL", "LI", "BR", "DIV", "P", "SPAN"]);
+  const doc = new DOMParser().parseFromString(html, "text/html");
+
+  const safeHrefs = new Map<Element, string>();
+  doc.body.querySelectorAll("a").forEach((a) => {
+    const href = a.getAttribute("href") ?? "";
+    if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) safeHrefs.set(a, href);
+  });
+
+  const clean = (node: Element) => {
+    Array.from(node.children).forEach((child) => {
+      if (!ALLOWED_TAGS.has(child.tagName)) {
+        child.replaceWith(document.createTextNode(child.textContent ?? ""));
+        return;
+      }
+      Array.from(child.attributes).forEach((attr) => child.removeAttribute(attr.name));
+      clean(child);
+    });
+  };
+  clean(doc.body);
+
+  doc.body.querySelectorAll("a").forEach((a) => {
+    const href = safeHrefs.get(a);
+    if (href) {
+      a.setAttribute("href", href);
+      a.setAttribute("target", "_blank");
+      a.setAttribute("rel", "noreferrer");
+    } else {
+      a.replaceWith(document.createTextNode(a.textContent ?? ""));
+    }
+  });
+
+  return doc.body.innerHTML;
+}
+
+/**
+ * True once tags are stripped and only whitespace is left — used to tell "no description" from
+ * "described something", since an empty contentEditable still saves as e.g. "<div><br></div>".
+ *
+ * A list is treated as never blank even with no text yet: clicking Bullet/Numbered list on an
+ * empty editor produces "<ol><li><br></li></ol>", which strips down to nothing but still
+ * renders a real, visible "1." marker — if this function still called that blank, the
+ * placeholder `<span>` this drives would keep showing and visually overlap that marker.
+ */
+function htmlIsBlank(html: string) {
+  if (/<(ol|ul|li)[\s>]/i.test(html)) return false;
+  return html.replace(/<[^>]*>/g, "").trim().length === 0;
+}
+
+/**
+ * A real WYSIWYG editor for the task description, backed by the browser's own `execCommand` —
+ * Bold/Italic/lists/links apply actual formatting instead of inserting literal markdown
+ * characters (the earlier version showed the user raw "**text**"/"[x](y)" syntax, which read as
+ * broken). Attach files uploads straight to Convex storage through `onAttachFiles`, which the
+ * caller wires to either a pending (pre-task) or a task-linked attach mutation.
+ */
+function RichTextEditor({
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  onAttachFiles,
+  uploading,
+}: {
+  value: string;
+  onChange: (html: string) => void;
+  onBlur?: () => void;
+  placeholder: string;
+  onAttachFiles: (files: FileList) => void;
+  uploading: boolean;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const savedRange = useRef<Range | null>(null);
+  const [empty, setEmpty] = useState(htmlIsBlank(value));
+
+  // Sets the starting content imperatively, once, instead of through JSX (no
+  // dangerouslySetInnerHTML on the element below at all). That matters because JSX
+  // children/dangerouslySetInnerHTML are something React tracks per element and can decide to
+  // re-apply on a later render — which would mean fighting the DOM the browser is actively
+  // editing and losing the caret. Writing the initial HTML directly to the node here, and never
+  // describing this element's contents to React at all, means React has nothing to reconcile
+  // here on subsequent renders and leaves it alone.
+  useEffect(() => {
+    if (editorRef.current) editorRef.current.innerHTML = value;
+    // Intentionally empty deps: this sets the *starting* content only. A later task/value
+    // change is handled by the caller remounting this component via a `key`, not by this
+    // effect re-running.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const focusEditor = () => editorRef.current?.focus();
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
+      savedRange.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSelection = () => {
+    const sel = window.getSelection();
+    if (sel && savedRange.current) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange.current);
+    }
+  };
+
+  const handleInput = () => {
+    const html = editorRef.current?.innerHTML ?? "";
+    setEmpty(htmlIsBlank(html));
+    onChange(html);
+  };
+
+  const exec = (command: string, arg?: string) => {
+    focusEditor();
+    document.execCommand(command, false, arg);
+    handleInput();
+  };
+
+  const handleLink = () => {
+    saveSelection();
+    const url = window.prompt("Link URL");
+    if (!url) return;
+    focusEditor();
+    restoreSelection();
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) {
+      document.execCommand("insertHTML", false, `<a href="${url}">${url}</a>`);
+    } else {
+      document.execCommand("createLink", false, url);
+    }
+    handleInput();
+  };
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-input">
+      <div className="relative">
+        {/* No children and no dangerouslySetInnerHTML here on purpose — see the mount effect
+            above for why. */}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={handleInput}
+          onBlur={onBlur}
+          className="min-h-24 w-full px-3 py-3 text-sm leading-6 outline-none [&_a]:text-primary [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+        />
+        {empty ? (
+          <span className="pointer-events-none absolute left-3 top-3 text-sm text-muted-foreground-subtle">
+            {placeholder}
           </span>
-        ))}
+        ) : null}
       </div>
-      <span className="flex items-center gap-1.5 rounded-md border border-dashed border-input px-2.5 py-1 text-xs text-muted-foreground-subtle">
-        <Paperclip className="h-3.5 w-3.5" />
-        Attach files
-      </span>
+
+      <div className="flex items-center justify-between border-t border-border px-3 py-2">
+        <div className="flex items-center gap-1">
+          <ToolbarButton icon={Bold} label="Bold" onClick={() => exec("bold")} />
+          <ToolbarButton icon={Italic} label="Italic" onClick={() => exec("italic")} />
+          <ToolbarButton icon={LinkIcon} label="Link" onClick={handleLink} />
+          <ToolbarButton icon={AlignLeft} label="Numbered list" onClick={() => exec("insertOrderedList")} />
+          <ToolbarButton icon={ListIcon} label="Bullet list" onClick={() => exec("insertUnorderedList")} />
+        </div>
+        <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-input px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent">
+          <Paperclip className="h-3.5 w-3.5" />
+          {uploading ? "Uploading…" : "Attach files"}
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            disabled={uploading}
+            onChange={(event) => {
+              if (event.target.files?.length) onAttachFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function AttachmentList({
+  attachments,
+  onRemove,
+}: {
+  attachments: Attachment[];
+  onRemove: (id: Id<"taskAttachments">) => void;
+}) {
+  if (attachments.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {attachments.map((a) => (
+        <div
+          key={a._id}
+          className="flex items-center gap-1.5 rounded-lg border border-input bg-muted/30 px-2.5 py-1.5 text-xs"
+        >
+          <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
+          {a.url ? (
+            <a
+              href={a.url}
+              target="_blank"
+              rel="noreferrer"
+              className="max-w-[160px] truncate text-foreground hover:underline"
+            >
+              {a.fileName}
+            </a>
+          ) : (
+            <span className="max-w-[160px] truncate text-foreground">{a.fileName}</span>
+          )}
+          <button
+            type="button"
+            onClick={() => onRemove(a._id)}
+            aria-label={`Remove ${a.fileName}`}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
 
 function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const create = useMutation(api.tasks.create);
-  const members = useQuery(api.team.overview)?.members;
+  const generateUploadUrl = useMutation(api.tasks.generateUploadUrl);
+  const attach = useMutation(api.tasks.attach);
+  const removeAttachment = useMutation(api.tasks.removeAttachment);
   const toast = useToast();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<Status>("todo");
   const [priority, setPriority] = useState<Priority>("medium");
-  const [assignee, setAssignee] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
   const [addingTag, setAddingTag] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const handleAddTag = () => {
     const value = newTag.trim();
@@ -654,18 +941,55 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setAddingTag(false);
   };
 
+  // Uploaded before the task exists, so each one is a standalone taskAttachments row with no
+  // taskId yet — `create` below links them all to the new task right after inserting it.
+  const handleAttachFiles = async (files: FileList) => {
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const uploadUrl = await generateUploadUrl();
+        const uploaded = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        });
+        if (!uploaded.ok) throw new Error("Could not upload the file.");
+        const { storageId } = (await uploaded.json()) as { storageId: Id<"_storage"> };
+        const attachmentId = await attach({ storageId, fileName: file.name });
+        setAttachments((current) => [...current, { _id: attachmentId, fileName: file.name }]);
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not attach that file.", "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveAttachment = (id: Id<"taskAttachments">) => {
+    setAttachments((current) => current.filter((a) => a._id !== id));
+    void removeAttachment({ attachmentId: id }).catch(() => {});
+  };
+
+  // A cancelled create shouldn't leave orphaned uploads sitting in storage with no task to
+  // ever claim them.
+  const handleClose = () => {
+    for (const a of attachments) void removeAttachment({ attachmentId: a._id }).catch(() => {});
+    onClose();
+  };
+
   const handleSave = async () => {
     if (!title.trim()) return;
     setBusy(true);
     try {
+      const cleanDescription = sanitizeHtml(description);
       await create({
         title: title.trim(),
-        description: description.trim() || undefined,
+        description: htmlIsBlank(cleanDescription) ? undefined : cleanDescription,
         status,
         priority,
-        assignee: assignee || undefined,
         dueDate: dueDate ? new Date(dueDate).getTime() : undefined,
         tags: tags.length ? tags : undefined,
+        attachmentIds: attachments.map((a) => a._id),
       });
       onCreated();
     } catch (err) {
@@ -681,7 +1005,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -694,7 +1018,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         <div className="flex items-center justify-between border-b border-border px-6 py-5">
           <h2 className="text-lg font-bold">Create task</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close"
             className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent"
           >
@@ -711,74 +1035,25 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             className="h-11 w-full rounded-xl border border-input bg-card px-3 text-base font-medium outline-none placeholder:text-muted-foreground-subtle placeholder:font-normal focus:ring-2 focus:ring-ring/20"
           />
 
-          <div className="overflow-hidden rounded-xl border border-input">
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Add a description, details, or instructions…"
-              rows={4}
-              className="w-full resize-none border-0 bg-card px-3 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground-subtle"
-            />
-            <DescriptionToolbar />
-          </div>
+          <RichTextEditor
+            value={description}
+            onChange={setDescription}
+            placeholder="Add a description, details, or instructions…"
+            onAttachFiles={(files) => void handleAttachFiles(files)}
+            uploading={uploading}
+          />
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <AttachmentList attachments={attachments} onRemove={handleRemoveAttachment} />
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="mb-2 block text-sm font-medium">Status</span>
-              <div className="relative">
-                <span className={`absolute left-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${STATUS_META[status].dotClassName}`} />
-                <select
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value as Status)}
-                  className="h-11 w-full appearance-none rounded-xl border border-input bg-card pl-7 pr-8 text-sm font-medium outline-none focus:ring-2 focus:ring-ring/20"
-                >
-                  {(Object.keys(STATUS_META) as Status[]).map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_META[s].label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              </div>
+              <Dropdown value={status} options={STATUS_OPTIONS} onChange={setStatus} />
             </label>
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium">Priority</span>
-              <div className="relative">
-                <span className={`absolute left-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${PRIORITY_DOT[priority]}`} />
-                <select
-                  value={priority}
-                  onChange={(event) => setPriority(event.target.value as Priority)}
-                  className="h-11 w-full appearance-none rounded-xl border border-input bg-card pl-7 pr-8 text-sm font-medium capitalize outline-none focus:ring-2 focus:ring-ring/20"
-                >
-                  {(["low", "medium", "high"] as const).map((p) => (
-                    <option key={p} value={p}>
-                      {p[0].toUpperCase() + p.slice(1)}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              </div>
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium">Assignee</span>
-              <div className="relative">
-                <User className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <select
-                  value={assignee}
-                  onChange={(event) => setAssignee(event.target.value)}
-                  className="h-11 w-full appearance-none rounded-xl border border-input bg-card pl-8 pr-8 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-                >
-                  <option value="">Unassigned</option>
-                  {(members ?? []).map((m) => (
-                    <option key={m.userId} value={m.name}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              </div>
+              <Dropdown value={priority} options={PRIORITY_OPTIONS} onChange={setPriority} />
             </label>
           </div>
 
@@ -848,7 +1123,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
         <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/30 px-6 py-4">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-lg border border-input bg-card px-4 py-2 text-sm font-medium hover:bg-accent"
           >
             Cancel

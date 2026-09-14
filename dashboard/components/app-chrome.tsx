@@ -40,7 +40,8 @@ function SignedInShell({ children }: { children: ReactNode }) {
     pathname === "/call" ||
     pathname === "/leads" ||
     pathname === "/docs" ||
-    pathname === "/property";
+    pathname === "/property" ||
+    pathname === "/tasks";
   const { isLoaded, isSignedIn } = useUser();
   const { redirectToSignIn } = useClerk();
 

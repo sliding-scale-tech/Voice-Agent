@@ -14,6 +14,10 @@ async function ownedTask(
   return task;
 }
 
+function displayName(user: Doc<"users">): string {
+  return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "Someone";
+}
+
 /** The signed-in team's tasks. Empty (not an error) when signed out. */
 export const list = query({
   args: {},
@@ -37,9 +41,11 @@ export const create = mutation({
     ),
     priority: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
     category: v.optional(v.string()),
-    assignee: v.optional(v.string()),
     dueDate: v.optional(v.number()),
     tags: v.optional(v.array(v.string())),
+    // Files uploaded through the Create task modal's Attach files button before the task
+    // existed — see taskAttachments in schema.ts. Linked to the new row right after insert.
+    attachmentIds: v.optional(v.array(v.id("taskAttachments"))),
   },
   handler: async (ctx, args) => {
     const { orgId, user } = await requireOrg(ctx);
@@ -47,7 +53,7 @@ export const create = mutation({
     if (!title) throw new Error("Task title is required.");
 
     const now = Date.now();
-    return ctx.db.insert("tasks", {
+    const taskId = await ctx.db.insert("tasks", {
       orgId,
       userId: user._id,
       title,
@@ -55,12 +61,22 @@ export const create = mutation({
       status: args.status ?? "todo",
       priority: args.priority,
       category: args.category?.trim() || undefined,
-      assignee: args.assignee?.trim() || undefined,
       dueDate: args.dueDate,
       tags: args.tags?.length ? args.tags : undefined,
       createdAt: now,
       updatedAt: now,
     });
+
+    for (const attachmentId of args.attachmentIds ?? []) {
+      const attachment = await ctx.db.get(attachmentId);
+      // Only link an attachment this same org uploaded and that isn't already claimed by
+      // another task — guards against a stale or tampered id from the client.
+      if (attachment && attachment.orgId === orgId && !attachment.taskId) {
+        await ctx.db.patch(attachmentId, { taskId });
+      }
+    }
+
+    return taskId;
   },
 });
 
@@ -93,7 +109,6 @@ export const update = mutation({
       v.union(v.literal("todo"), v.literal("in_progress"), v.literal("completed")),
     ),
     priority: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
-    assignee: v.optional(v.string()),
     dueDate: v.optional(v.number()),
     clearDueDate: v.optional(v.boolean()),
     tags: v.optional(v.array(v.string())),
@@ -111,7 +126,6 @@ export const update = mutation({
     if (args.description !== undefined) patch.description = args.description.trim() || undefined;
     if (args.status !== undefined) patch.status = args.status;
     if (args.priority !== undefined) patch.priority = args.priority;
-    if (args.assignee !== undefined) patch.assignee = args.assignee.trim() || undefined;
     if (args.tags !== undefined) patch.tags = args.tags;
     if (args.clearDueDate) patch.dueDate = undefined;
     else if (args.dueDate !== undefined) patch.dueDate = args.dueDate;
@@ -120,11 +134,50 @@ export const update = mutation({
   },
 });
 
-// --- Comments ---------------------------------------------------------------
+// --- Attachments -------------------------------------------------------------
 
-/** A task's comment thread, oldest first. Scoped through the task's own org rather than a
- * separate orgId column on the comment — a comment has no existence apart from its task. */
-export const comments = query({
+/** Short-lived URL the client POSTs a file to. Shared by the Create task modal (no task yet —
+ * see `attach` below) and the detail panel (task already exists). */
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireOrg(ctx);
+    return ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Records an uploaded file against a task, or against no task yet when called from the Create
+ * task modal — `create` above links it once the task is inserted. Either way the row is scoped
+ * to this org immediately, so an abandoned pre-task upload is still attributable and cleanable.
+ */
+export const attach = mutation({
+  args: {
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    taskId: v.optional(v.id("tasks")),
+  },
+  handler: async (ctx, args) => {
+    const { orgId, user } = await requireOrg(ctx);
+    if (args.taskId) await ownedTask(ctx, args.taskId, orgId);
+
+    return ctx.db.insert("taskAttachments", {
+      taskId: args.taskId,
+      orgId,
+      storageId: args.storageId,
+      fileName: args.fileName,
+      uploadedByUserId: user._id,
+      uploadedByName: displayName(user),
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/** A task's attached files, each with a fresh download URL. Scoped through the task's own org,
+ * the same ownership check as `ownedTask` above but read-only. Also used for a not-yet-created
+ * task's pending uploads (see NewTaskModal), where `taskId` is absent on the attachment rows
+ * instead of pointing at a real task. */
+export const attachments = query({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const org = await currentOrg(ctx);
@@ -132,34 +185,31 @@ export const comments = query({
     const task = await ctx.db.get(args.taskId);
     if (!task || task.orgId !== org.orgId) return [];
 
-    return ctx.db
-      .query("taskComments")
+    const rows = await ctx.db
+      .query("taskAttachments")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .order("asc")
       .collect();
+
+    return Promise.all(
+      rows.map(async (row) => ({
+        _id: row._id,
+        fileName: row.fileName,
+        uploadedByName: row.uploadedByName,
+        createdAt: row.createdAt,
+        url: await ctx.storage.getUrl(row.storageId),
+      })),
+    );
   },
 });
 
-export const addComment = mutation({
-  args: { taskId: v.id("tasks"), text: v.string() },
+export const removeAttachment = mutation({
+  args: { attachmentId: v.id("taskAttachments") },
   handler: async (ctx, args) => {
-    const { orgId, user } = await requireOrg(ctx);
-    await ownedTask(ctx, args.taskId, orgId);
+    const { orgId } = await requireOrg(ctx);
+    const attachment = await ctx.db.get(args.attachmentId);
+    if (!attachment || attachment.orgId !== orgId) throw new Error("Attachment not found.");
 
-    const text = args.text.trim();
-    if (!text) throw new Error("Comment can't be empty.");
-
-    const authorName =
-      [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
-      user.email ||
-      "Someone";
-
-    return ctx.db.insert("taskComments", {
-      taskId: args.taskId,
-      authorName,
-      authorUserId: user._id,
-      text,
-      createdAt: Date.now(),
-    });
+    await ctx.storage.delete(attachment.storageId);
+    await ctx.db.delete(args.attachmentId);
   },
 });
