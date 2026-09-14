@@ -7,6 +7,7 @@ import {
   query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import * as el from "./elevenLabsApi";
 import { RESIDENT_TRIAGE_BLOCK } from "./residentTriage";
@@ -528,11 +529,14 @@ export const saveAgent = action({
   handler: async (ctx, args): Promise<string> => {
     const { orgId, userId } = await requireOrgId(ctx);
     // A no-op if this user already has an agent. Guarantees that even someone who opens
-    // Settings and hits Save before ever placing a call still starts from the same cloned
-    // template (property + knowledge base included) as everyone else — not a bare prompt with
+    // Settings and hits Save before ever placing a call still starts from the same seeded
+    // setup (property + knowledge base included) as everyone else — not a bare prompt with
     // nothing behind it.
     await ctx.runAction(internal.agents.ensure, { orgId, userId });
     const existing = await ctx.runQuery(internal.agents.currentInternal, { orgId });
+    // Still none means another setup run is mid-flight. Creating one here would give the team a
+    // second ElevenLabs agent, so ask them to retry once that run has finished.
+    if (!existing) throw new Error("Your assistant is still being set up. Try saving again in a few seconds.");
     const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
       internal.docs.syncedEntries,
       { orgId },
@@ -662,27 +666,23 @@ export const mintToken = action({
       await ctx.runAction(internal.agents.ensure, { orgId, userId });
       agent = await ctx.runQuery(internal.agents.currentInternal, { orgId });
     }
-    if (!agent) throw new Error("Could not create an agent.");
+    if (!agent) {
+      throw new Error(
+        orgId
+          ? "Your assistant is still being set up. Try again in a few seconds."
+          : "Could not create an agent.",
+      );
+    }
 
     const { token } = await el.getWebrtcToken(agent.elevenLabsAgentId);
     return { token, agentId: agent.elevenLabsAgentId };
   },
 });
 
-/** Creates the default Sarah agent for a team that doesn't have one yet. */
 /**
- * Bootstraps a brand-new team with the exact same starting point every account has always had:
- * a copy of the template's property and agent config (prompt, voice, first message) — see
- * templateOrgId — plus the fixed DEFAULT_DOCS knowledge base (docs.cloneDefaultsForOrg), which
- * is coded rather than copied so it exists even before any agent has ever existed. Falls back
- * to the coded LEASING_PROMPT/DEFAULT_* constants for the agent/property when there is truly no
- * template to copy from (a from-scratch install).
- */
-/**
- * Public entry point for the same bootstrap, for a page that wants the clone to happen just
- * from being visited rather than waiting on mintToken or a Settings save — see convex/docs.ts
- * list for the case that prompted this (the Knowledge tab showing empty until one of those
- * two fired). Safe to call on every load: ensure below is a no-op once the org has an agent.
+ * Public entry point for the setup below. The Knowledge tab calls it when it finds no docs.
+ * Normally a no-op — sign-up already schedules ensure (team.ensureTeamForUser) — so it only
+ * matters for a team whose setup failed or that predates sign-up doing it.
  */
 export const ensureSeeded = action({
   args: {},
@@ -692,76 +692,138 @@ export const ensureSeeded = action({
   },
 });
 
+/**
+ * Sets up a brand-new team: a copy of the template's property and agent config (prompt, voice,
+ * first message) — see templateOrgId — plus the fixed DEFAULT_DOCS knowledge base
+ * (docs.cloneDefaultsForOrg). Falls back to the coded LEASING_PROMPT/DEFAULT_* constants for the
+ * agent/property when there is no template to copy from (a from-scratch install).
+ *
+ * Scheduled at sign-up, and also called by the Knowledge tab, a first call and a Settings save
+ * as fallbacks. claimBootstrap makes sure only one of those actually runs: without it, two
+ * overlapping runs both see "no agent", both create one on ElevenLabs, and upsert keeps only the
+ * second — leaving the first orphaned and still billable.
+ */
 export const ensure = internalAction({
   args: { orgId: v.string(), userId: v.id("users") },
   handler: async (ctx, args): Promise<void> => {
-    const existing = await ctx.runQuery(internal.agents.currentInternal, { orgId: args.orgId });
-    if (existing) return;
-
-    // Convex queries can't return `undefined` over the ctx.runQuery boundary — it comes back
-    // as `null` here, so this normalizes back to `undefined` for the mutations below, which
-    // declare templateOrgId as v.optional (translating to `T | undefined` in TS, not `| null`).
-    const templateOrgId = (await ctx.runQuery(internal.agents.templateOrgId, {})) ?? undefined;
-    const template = templateOrgId
-      ? await ctx.runQuery(internal.agents.currentInternal, { orgId: templateOrgId })
-      : null;
-
-    // Cloning the property first, then the docs, matters: syncPropertyDoc (scheduled by the
-    // property clone) and the doc clone both write into this user's docs table, and the doc
-    // clone skips anything already there so it never fights the auto-generated property doc.
-    await ctx.runMutation(internal.properties.cloneForOrg, {
+    const claimed: boolean = await ctx.runMutation(internal.agents.claimBootstrap, {
       orgId: args.orgId,
-      userId: args.userId,
-      templateOrgId,
     });
-    await ctx.runMutation(internal.docs.cloneDefaultsForOrg, {
-      orgId: args.orgId,
-      userId: args.userId,
-    });
+    if (!claimed) return;
 
-    // The cloned docs above are only scheduled to sync, not yet indexed — same as a doc saved
-    // by hand, the agent starts with an empty knowledge base and pushKnowledgeBase re-attaches
-    // it automatically once each one finishes (see docs.pollRagIndex).
-    const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
-      internal.docs.syncedEntries,
-      { orgId: args.orgId },
-    );
-    const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
-    // A brand-new user has no questions of their own yet, but this is read rather than assumed
-    // empty so a cloned template's questions would render if cloning ever covers them.
-    const questions: ScreeningQuestion[] = await ctx.runQuery(
-      internal.screening.activeForOrg,
-      { orgId: args.orgId },
-    );
-    const disabledCore: string[] = await ctx.runQuery(
-      internal.screening.disabledBuiltinsForOrg,
-      { orgId: args.orgId },
-    );
+    try {
+      await bootstrapTeam(ctx, args);
+    } catch (err) {
+      // Free the claim so the next fallback can retry now, rather than waiting out the lease.
+      await ctx.runMutation(internal.agents.releaseBootstrap, { orgId: args.orgId });
+      throw err;
+    }
+  },
+});
 
-    const name = template?.name ?? "Sarah";
-    const prompt = template?.prompt ?? LEASING_PROMPT;
-    const firstMessage = template?.firstMessage ?? DEFAULT_FIRST_MESSAGE;
-    const voiceId = template?.voiceId ?? DEFAULT_VOICE_ID;
+async function bootstrapTeam(
+  ctx: ActionCtx,
+  args: { orgId: string; userId: Id<"users"> },
+): Promise<void> {
+  // Convex queries can't return `undefined` over the ctx.runQuery boundary — it comes back
+  // as `null` here, so this normalizes back to `undefined` for the mutations below, which
+  // declare templateOrgId as v.optional (translating to `T | undefined` in TS, not `| null`).
+  const templateOrgId = (await ctx.runQuery(internal.agents.templateOrgId, {})) ?? undefined;
+  const template = templateOrgId
+    ? await ctx.runQuery(internal.agents.currentInternal, { orgId: templateOrgId })
+    : null;
 
-    const created = await el.createAgent({
-      name,
-      prompt: composePrompt(prompt, questions, disabledCore),
-      firstMessage,
-      voiceId,
-      knowledgeBase,
-      toolIds,
-      voice: VOICE_TUNING,
-      turn: TURN_TUNING,
-    });
-    await ctx.runMutation(internal.agents.upsert, {
-      orgId: args.orgId,
-      userId: args.userId,
-      elevenLabsAgentId: created.agent_id,
-      name,
-      prompt,
-      firstMessage,
-      voiceId,
-    });
+  // Property first, then docs: the property clone schedules the auto-generated property doc,
+  // which cloneDefaultsForOrg deliberately looks past when deciding whether this team already
+  // has knowledge — it can land before the defaults do.
+  await ctx.runMutation(internal.properties.cloneForOrg, {
+    orgId: args.orgId,
+    userId: args.userId,
+    templateOrgId,
+  });
+  await ctx.runMutation(internal.docs.cloneDefaultsForOrg, {
+    orgId: args.orgId,
+    userId: args.userId,
+  });
+
+  // The cloned docs above are only scheduled to sync, not yet indexed — same as a doc saved
+  // by hand, the agent starts with an empty knowledge base and pushKnowledgeBase re-attaches
+  // it automatically once each one finishes (see docs.pollRagIndex).
+  const knowledgeBase: el.KnowledgeBaseEntry[] = await ctx.runQuery(
+    internal.docs.syncedEntries,
+    { orgId: args.orgId },
+  );
+  const toolIds: string[] = await ctx.runAction(internal.agents.ensureTools, {});
+  // A brand-new user has no questions of their own yet, but this is read rather than assumed
+  // empty so a cloned template's questions would render if cloning ever covers them.
+  const questions: ScreeningQuestion[] = await ctx.runQuery(
+    internal.screening.activeForOrg,
+    { orgId: args.orgId },
+  );
+  const disabledCore: string[] = await ctx.runQuery(
+    internal.screening.disabledBuiltinsForOrg,
+    { orgId: args.orgId },
+  );
+
+  const name = template?.name ?? "Sarah";
+  const prompt = template?.prompt ?? LEASING_PROMPT;
+  const firstMessage = template?.firstMessage ?? DEFAULT_FIRST_MESSAGE;
+  const voiceId = template?.voiceId ?? DEFAULT_VOICE_ID;
+
+  const created = await el.createAgent({
+    name,
+    prompt: composePrompt(prompt, questions, disabledCore),
+    firstMessage,
+    voiceId,
+    knowledgeBase,
+    toolIds,
+    voice: VOICE_TUNING,
+    turn: TURN_TUNING,
+  });
+  await ctx.runMutation(internal.agents.upsert, {
+    orgId: args.orgId,
+    userId: args.userId,
+    elevenLabsAgentId: created.agent_id,
+    name,
+    prompt,
+    firstMessage,
+    voiceId,
+  });
+}
+
+/**
+ * How long a started setup is trusted to still be running. Only reached if a run died without
+ * reaching its catch (a crashed action); normal failures release the claim straight away.
+ */
+const BOOTSTRAP_LEASE_MS = 10 * 60 * 1000;
+
+/** True if this caller may set the team up now; false if it already has an agent or a run is live. */
+export const claimBootstrap = internalMutation({
+  args: { orgId: v.string() },
+  handler: async (ctx, args): Promise<boolean> => {
+    const agent = await ctx.db
+      .query("agents")
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+      .first();
+    if (agent) return false;
+
+    // No organizations row to record the claim on: set up without the guard rather than never.
+    const orgId = ctx.db.normalizeId("organizations", args.orgId);
+    const org = orgId ? await ctx.db.get(orgId) : null;
+    if (!orgId || !org) return true;
+
+    const now = Date.now();
+    if (org.bootstrapStartedAt && now - org.bootstrapStartedAt < BOOTSTRAP_LEASE_MS) return false;
+    await ctx.db.patch(orgId, { bootstrapStartedAt: now });
+    return true;
+  },
+});
+
+export const releaseBootstrap = internalMutation({
+  args: { orgId: v.string() },
+  handler: async (ctx, args) => {
+    const orgId = ctx.db.normalizeId("organizations", args.orgId);
+    if (orgId) await ctx.db.patch(orgId, { bootstrapStartedAt: undefined });
   },
 });
 
