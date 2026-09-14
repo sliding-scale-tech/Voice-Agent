@@ -29,6 +29,10 @@ export default defineSchema({
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // When agents.ensure last started setting this team up (agent, property, knowledge). Sign-up
+    // schedules it, and the Knowledge tab, a first call and a Settings save all call it as a
+    // fallback — this is what keeps overlapping runs from each creating an ElevenLabs agent.
+    bootstrapStartedAt: v.optional(v.number()),
   }),
 
   // One row per person per team. The unique index is what makes "one team per person" a fact

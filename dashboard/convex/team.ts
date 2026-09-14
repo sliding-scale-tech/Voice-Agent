@@ -9,6 +9,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { currentOrg, requireOrgAdmin, requireOrgId, requireUser, currentUser } from "./authz";
 import * as el from "./elevenLabsApi";
 import { sendEmail } from "./resendApi";
@@ -285,7 +286,11 @@ export const redeemInvite = internalMutation({
 });
 
 /**
- * Gives a brand-new account a team of its own, with them as admin.
+ * Gives a brand-new account a team of its own, with them as admin, and schedules that team's
+ * setup (agent, property, knowledge — agents.ensure) so it is ready before they open a page.
+ * Scheduled rather than awaited: it calls ElevenLabs and takes seconds, and the Clerk webhook
+ * that calls this must answer quickly or Clerk retries it. Scheduling in this same mutation
+ * means the team and its setup are committed together — never a team whose setup was dropped.
  *
  * Called from the Clerk user webhook. Deliberately does nothing when the person already has a
  * membership: someone who signed up *because* they were invited must land in the inviting team,
@@ -298,7 +303,10 @@ export const ensureTeamForUser = internalMutation({
       .query("memberships")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .first();
-    if (existing) return;
+    if (existing) {
+      if (existing.role === "admin") await scheduleSetupIfMissing(ctx, existing.orgId, args.userId);
+      return;
+    }
 
     const user = await ctx.db.get(args.userId);
     if (!user) return;
@@ -330,8 +338,26 @@ export const ensureTeamForUser = internalMutation({
       role: "admin",
       createdAt: now,
     });
+    await ctx.scheduler.runAfter(0, internal.agents.ensure, { orgId, userId: args.userId });
   },
 });
+
+/**
+ * For an admin whose team still has no agent — created before sign-up set teams up, or whose
+ * setup failed. session.created lands here on every sign-in, so this retries on the next one.
+ * The agent check is here rather than left to ensure so an ordinary sign-in schedules nothing.
+ */
+async function scheduleSetupIfMissing(
+  ctx: MutationCtx,
+  orgId: Id<"organizations">,
+  userId: Id<"users">,
+) {
+  const agent = await ctx.db
+    .query("agents")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .first();
+  if (!agent) await ctx.scheduler.runAfter(0, internal.agents.ensure, { orgId, userId });
+}
 
 /** Used by the accept page to show who invited them before they commit to signing in. */
 export const inviteSummary = internalQuery({
