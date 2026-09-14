@@ -167,6 +167,46 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_user", ["userId"]),
 
+  // Team to-dos on the Tasks tab. Grouped in the UI by `status`; `order` is not tracked since
+  // the page doesn't support drag reordering.
+  tasks: defineTable({
+    // Required, same reasoning as docs/properties/screeningQuestions above: every insert path
+    // stamps it, so there is no "unowned row" case to make optional for.
+    orgId: v.string(),
+    userId: v.id("users"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    status: v.union(v.literal("todo"), v.literal("in_progress"), v.literal("completed")),
+    priority: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+    // Free text rather than a union: this mirrors tenantIssues.category above — a label like
+    // "Leasing" or "HR" is just a display tag, not something the app branches logic on.
+    category: v.optional(v.string()),
+    dueDate: v.optional(v.number()),
+    tags: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_user", ["userId"]),
+
+  // Files attached to a task from the Create task modal or the detail panel's Attach files
+  // button. `taskId` is optional because the create modal uploads to storage (so the file picks
+  // up an id immediately) before the task itself exists — tasks.create attaches these rows to
+  // the new task right after inserting it, the same two-step shape docs.ts uses for uploads.
+  taskAttachments: defineTable({
+    taskId: v.optional(v.id("tasks")),
+    orgId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    uploadedByUserId: v.id("users"),
+    // Denormalized like screeningQuestions.question: the uploader's name at the time they
+    // uploaded it, so a later name change doesn't rewrite history.
+    uploadedByName: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_org", ["orgId"]),
+
   usage: defineTable({
     monthKey: v.string(), // "2026-07"
     secondsUsed: v.number(),

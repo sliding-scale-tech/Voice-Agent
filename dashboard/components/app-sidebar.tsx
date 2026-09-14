@@ -20,6 +20,7 @@ import {
   ChevronDown,
   LogOut,
   Check,
+  ListTodo,
 } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "convex/react";
@@ -43,6 +44,7 @@ const ALL_LINKS: Array<{
   { href: "/docs", label: "Knowledge", icon: BookOpen, hidden: false },
   { href: "/property", label: "Property", icon: Building2, hidden: false },
   { href: "/screening", label: "Screening", icon: ClipboardList, hidden: false },
+  { href: "/tasks", label: "Tasks", icon: ListTodo, hidden: false },
   // Visible to everyone: members get a read-only roster so they can see who they share the
   // dashboard with. The page itself hides every control they cannot use, and convex/team.ts
   // re-checks the role on every write — the nav flag was never the boundary.
@@ -55,7 +57,7 @@ const LINKS = ALL_LINKS.filter((l) => !l.hidden);
 // The bottom nav only has room for a handful of items; the rest live in the "More" sheet.
 const BOTTOM_NAV_LINKS = LINKS.filter((l) => ["/call", "/leads", "/tenants"].includes(l.href));
 const MORE_LINKS = LINKS.filter((l) =>
-  ["/whatsapp", "/property", "/screening", "/docs", "/team", "/settings"].includes(l.href),
+  ["/whatsapp", "/property", "/screening", "/docs", "/tasks", "/team", "/settings"].includes(l.href),
 );
 
 /**
