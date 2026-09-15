@@ -39,7 +39,7 @@ function isResidentCall(
  * and "I'm not looking for an apartment" (or otherwise unclassified) calls are not leads —
  * they must not appear in the Leads list or its top-line stats.
  */
-function isLeasingLead(
+export function isLeasingLead(
   conversation: {
     _id: Id<"conversations">;
     elevenLabsConversationId?: string;

@@ -37,6 +37,7 @@ export function AppChrome({ children }: { children: ReactNode }) {
 function SignedInShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const hasDashboardHeader =
+    pathname === "/dashboard" ||
     pathname === "/call" ||
     pathname === "/leads" ||
     pathname === "/docs" ||

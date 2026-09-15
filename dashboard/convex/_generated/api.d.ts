@@ -14,6 +14,7 @@ import type * as calendarView from "../calendarView.js";
 import type * as clerkWebhook from "../clerkWebhook.js";
 import type * as conversations from "../conversations.js";
 import type * as coreQuestions from "../coreQuestions.js";
+import type * as dashboard from "../dashboard.js";
 import type * as docs from "../docs.js";
 import type * as docsImport from "../docsImport.js";
 import type * as elevenLabsApi from "../elevenLabsApi.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   clerkWebhook: typeof clerkWebhook;
   conversations: typeof conversations;
   coreQuestions: typeof coreQuestions;
+  dashboard: typeof dashboard;
   docs: typeof docs;
   docsImport: typeof docsImport;
   elevenLabsApi: typeof elevenLabsApi;
