@@ -53,6 +53,7 @@ export const upsertByConversationId = internalMutation({
     callerPhone: v.optional(v.string()),
     qualifies: v.optional(v.boolean()),
     disqualifyReason: v.optional(v.string()),
+    nearMiss: v.optional(v.boolean()),
     tourSlot: v.optional(v.string()),
     tourConfirmed: v.optional(v.boolean()),
     screeningAnswers: v.optional(
@@ -77,6 +78,18 @@ export const upsertByConversationId = internalMutation({
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) patch[key] = value;
+    }
+    // qualifies, disqualifyReason and nearMiss travel together: whenever a call recomputes the
+    // decision, the other two must reflect exactly that decision, never a stale rejection left
+    // over from an earlier check_qualification call in the same conversation. Without this, a
+    // caller disqualified once, who then raises their budget and now qualifies, would keep
+    // showing the old reason and a "near miss" badge on the Leads page — genuinely wrong once
+    // they qualify. `ctx.db.patch` clears a field when the key is present with value undefined,
+    // which is exactly what re-adding them here (even as undefined) achieves; the loop above
+    // would otherwise drop them for being undefined and leave the previous values untouched.
+    if ("qualifies" in fields) {
+      patch.disqualifyReason = fields.disqualifyReason;
+      patch.nearMiss = fields.nearMiss;
     }
 
     if (existing) {

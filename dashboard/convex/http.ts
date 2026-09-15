@@ -223,7 +223,7 @@ http.route({
     // Shared with the WhatsApp bot on purpose — see convex/qualifyRules.ts. Two copies of
     // this decision would let the same person be told "yes" on one channel and "no" on the
     // other.
-    const { qualifies, disqualifyReason } = evaluateQualification(
+    const { qualifies, disqualifyReason, nearMiss, nearMissBudgetTarget } = evaluateQualification(
       property,
       {
         bedrooms,
@@ -245,6 +245,7 @@ http.route({
       callerPhone,
       qualifies,
       disqualifyReason,
+      nearMiss,
       // Every answer, criteria or not — the capture-only ones exist precisely so the manager
       // can read them on the lead.
       screeningAnswers: screeningAnswers.map((a) => ({
@@ -257,6 +258,12 @@ http.route({
     return Response.json({
       qualifies,
       reason: disqualifyReason ?? null,
+      // Only meaningful alongside qualifies: false. Never changes the decision, only how you
+      // talk about it — see the TONE FOR DISQUALIFICATIONS block in your instructions.
+      near_miss: qualifies === false ? (nearMiss ?? false) : false,
+      // Set only for a near miss on budget specifically. The exact real minimum for that unit —
+      // ask if they can go up to this number before anything else, never a different figure.
+      near_miss_budget_target: qualifies === false && nearMiss ? (nearMissBudgetTarget ?? null) : null,
       property_name: property.name,
       available_units: property.units
         .filter((u: { available: boolean }) => u.available)

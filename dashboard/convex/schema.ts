@@ -390,6 +390,10 @@ export default defineSchema({
     callerPhone: v.optional(v.string()),
     qualifies: v.optional(v.boolean()),
     disqualifyReason: v.optional(v.string()),
+    // Set alongside a false qualifies when the miss was small (see qualifyRules.NEAR_MISS_BAND)
+    // — Sarah is told to mention this lead to the team for a possible follow-up rather than
+    // treating it as a flat no. Never changes the qualifies decision itself.
+    nearMiss: v.optional(v.boolean()),
     tourSlot: v.optional(v.string()),
     tourConfirmed: v.boolean(),
 

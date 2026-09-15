@@ -75,6 +75,7 @@ type Qualification = {
   callerPhone?: string;
   qualifies?: boolean;
   disqualifyReason?: string;
+  nearMiss?: boolean;
   tourSlot?: string;
   screeningAnswers?: Array<{
     key: string;
@@ -565,6 +566,27 @@ function ExpandedDetail({
           <Field label="Name" value={qualification.callerName} />
           <Field label="Phone" value={qualification.callerPhone} />
           <Field label="Tour slot" value={qualification.tourSlot} />
+        </div>
+      ) : null}
+      {qualification?.qualifies === false && qualification.disqualifyReason ? (
+        <div
+          className={`rounded-xl border p-3 text-sm ${
+            qualification.nearMiss ? "border-amber-200 bg-amber-50" : "border-border bg-muted/30"
+          }`}
+        >
+          {qualification.nearMiss ? (
+            <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-amber-700 uppercase">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              Close — worth a follow-up
+            </p>
+          ) : (
+            <p className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Why they didn&apos;t qualify
+            </p>
+          )}
+          <p className={qualification.nearMiss ? "text-amber-900" : "text-foreground"}>
+            {qualification.disqualifyReason}
+          </p>
         </div>
       ) : null}
       {qualification?.screeningAnswers?.length ? (

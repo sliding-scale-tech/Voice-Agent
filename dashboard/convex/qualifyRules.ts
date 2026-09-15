@@ -58,7 +58,31 @@ export type ScreeningAnswer = {
 export type QualifyResult = {
   qualifies: boolean;
   disqualifyReason?: string;
+  // True when a numeric answer (budget, or a property manager's own number criterion) missed
+  // the mark by only a small margin — worth telling the agent to say so warmly and offer a
+  // human follow-up, rather than a flat no. Never set for a categorical failure (no unit of
+  // that type, pets not allowed, a choice/yes-no criterion) — those have no notion of "close",
+  // and the qualification decision itself never changes because of this: rules stay rules.
+  nearMiss?: boolean;
+  // Only ever set alongside a near miss on budget specifically — never on a property manager's
+  // own numeric question (credit score, income, ...). A stated budget is something the caller
+  // can reconsider on the spot; a fact like a credit score is not, so only budget gets asked
+  // "would you be able to go up to X?" This is always the unit's real minimum rent, never a
+  // number invented for the moment — asking it and having them revise their own answer is not
+  // the model deciding qualification, it's the caller changing their input.
+  nearMissBudgetTarget?: number;
 };
+
+// How close a numeric shortfall must be to the threshold to count as "close enough to be worth
+// a follow-up" rather than a flat no. A fraction of the threshold itself, not a fixed dollar
+// figure, since a $100 gap means something different on a $700 studio than a $3,000 unit. This
+// is a tone judgment call, not a fact about any one property — a manager who wants a different
+// band should say so.
+const NEAR_MISS_BAND = 0.1;
+
+function isNearMiss(shortfall: number, threshold: number): boolean {
+  return threshold > 0 && shortfall > 0 && shortfall <= threshold * NEAR_MISS_BAND;
+}
 
 /**
  * Only three things can disqualify someone: no available unit of the type they want, a budget
@@ -71,6 +95,10 @@ export type QualifyResult = {
  * them as criteria. Those are applied after the built-ins, so a hard availability or budget
  * failure still wins and still gives the clearer reason. A custom question with no criterion,
  * or with no answer captured, can never disqualify anyone.
+ *
+ * The decision itself is exactly as strict as before — a near miss still means qualifies: false.
+ * `nearMiss` only changes how the agent is told to talk about it, never whether a tour gets
+ * offered; see convex/tourPrompt.ts and the LEASING_PROMPT step this feeds.
  */
 export function evaluateQualification(
   property: Property,
@@ -88,9 +116,12 @@ export function evaluateQualification(
   }
 
   if (typeof input.budget === "number" && input.budget < unit.rentMin) {
+    const nearMiss = isNearMiss(unit.rentMin - input.budget, unit.rentMin);
     return {
       qualifies: false,
       disqualifyReason: `Rent for a ${input.bedrooms} starts at $${unit.rentMin}, above the stated budget.`,
+      nearMiss,
+      nearMissBudgetTarget: nearMiss ? unit.rentMin : undefined,
     };
   }
 
@@ -109,16 +140,16 @@ export function evaluateQualification(
     // by missingScreeningKeys instead.
     if (answer === undefined) continue;
 
-    const reason = failedCriterion(question, answer.value);
-    if (reason) return { qualifies: false, disqualifyReason: reason };
+    const failure = failedCriterion(question, answer.value);
+    if (failure) return { qualifies: false, disqualifyReason: failure.reason, nearMiss: failure.nearMiss };
   }
 
   return { qualifies: true };
 }
 
 /**
- * Applies one manager-defined criterion to one answer. Returns the reason it failed, or
- * undefined if it passed.
+ * Applies one manager-defined criterion to one answer. Returns the reason it failed plus
+ * whether it was close, or undefined if it passed.
  *
  * A value of the wrong runtime type passes rather than fails, for the same reason a missing
  * answer does: the caller answered something, we just could not read it, and a person should
@@ -127,7 +158,7 @@ export function evaluateQualification(
 function failedCriterion(
   question: ScreeningQuestion,
   value: string | number | boolean,
-): string | undefined {
+): { reason: string; nearMiss: boolean } | undefined {
   const criterion = question.criterion;
   if (!criterion) return undefined;
 
@@ -135,21 +166,30 @@ function failedCriterion(
     case "yes_no": {
       if (typeof value !== "boolean") return undefined;
       if (value === criterion.mustBe) return undefined;
-      return `${question.question} — answered ${value ? "yes" : "no"}, which does not meet this property's requirement.`;
+      return {
+        reason: `${question.question} — answered ${value ? "yes" : "no"}, which does not meet this property's requirement.`,
+        nearMiss: false, // a yes/no answer has no notion of "close"
+      };
     }
     case "number": {
       if (typeof value !== "number" || Number.isNaN(value)) return undefined;
       const passes = criterion.op === "gte" ? value >= criterion.value : value <= criterion.value;
       if (passes) return undefined;
       const bound = criterion.op === "gte" ? "at least" : "no more than";
-      return `${question.question} — answered ${value}, but this property requires ${bound} ${criterion.value}.`;
+      return {
+        reason: `${question.question} — answered ${value}, but this property requires ${bound} ${criterion.value}.`,
+        nearMiss: isNearMiss(Math.abs(value - criterion.value), criterion.value),
+      };
     }
     case "choice": {
       if (typeof value !== "string") return undefined;
       const normalized = value.trim().toLowerCase();
       const ok = criterion.allowed.some((a) => a.trim().toLowerCase() === normalized);
       if (ok) return undefined;
-      return `${question.question} — answered "${value}", which this property does not accept.`;
+      return {
+        reason: `${question.question} — answered "${value}", which this property does not accept.`,
+        nearMiss: false, // one option from a list isn't "close" to another
+      };
     }
   }
 }
