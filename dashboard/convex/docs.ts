@@ -336,6 +336,7 @@ export const syncPropertyDoc = internalMutation({
     const title = PROPERTY_DOC_TITLE;
     const body = [
       `${property.name}. Pets ${property.petsAllowed ? "allowed" : "not allowed"}. Move-in window: within ${property.moveInWindowDays} days.`,
+      ...(property.address ? [`Address: ${property.address.formatted}`] : []),
       "Available units:",
       ...property.units.map(
         (u) =>

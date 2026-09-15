@@ -12,6 +12,10 @@ import {
 import * as waha from "./wahaApi";
 import { realPhone } from "./sanitize";
 import { handleClerkWebhook } from "./clerkWebhook";
+import { handleOAuthCallback as handleGoogleOAuthCallback } from "./googleCalendar";
+import type { FunctionReturnType } from "convex/server";
+import { bookTour, cancelTourNow, findTourTimes, rescheduleTour, type IgnoredTour } from "./tours";
+import { formatLocalDateTime, phoneKey, spokenLabel } from "./tourSchedule";
 
 const http = httpRouter();
 
@@ -35,12 +39,91 @@ async function resolveOrg(
   return orgId ?? undefined;
 }
 
+/**
+ * resolveOrg, with the agent's own id as a second route. Booking cannot use resolveOrg's
+ * shared-default fallback — that would put a tour in the wrong team's calendars — and a phone
+ * call has no conversations row until it ends. But every team has its own ElevenLabs agent,
+ * so the agent id identifies the team mid-call on any channel.
+ */
+async function resolveBookingOrg(
+  ctx: GenericActionCtx<DataModel>,
+  conversationId: string | undefined,
+  agentId: string | undefined,
+): Promise<string | undefined> {
+  const byConversation = await resolveOrg(ctx, conversationId);
+  if (byConversation) return byConversation;
+  if (!agentId) return undefined;
+  const orgId = await ctx.runQuery(internal.agents.orgByElevenLabsAgentId, { elevenLabsAgentId: agentId });
+  return orgId ?? undefined;
+}
+
+/** Tool arguments arrive as JSON from the model; a boolean sometimes comes through as a string. */
+function isConfirmed(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+/** Every form of the caller's number we have — telephony caller ID and the number they said. */
+function callerPhoneKeys(...phones: Array<string | undefined>): string[] {
+  const keys = phones.map((p) => phoneKey(realPhone(p))).filter((k): k is string => k !== null);
+  return [...new Set(keys)];
+}
+
+/**
+ * callerPhoneKeys, plus the number already captured on this call's lead. A browser call has no
+ * caller ID, and the model often leaves caller_phone off a follow-up tool call — a caller who
+ * gave their number once (check_qualification records it) is recognized for the rest of the
+ * call. Without this, cancel_tour refused a caller's own tours right after find_my_tour found them.
+ */
+async function conversationPhoneKeys(
+  ctx: GenericActionCtx<DataModel>,
+  conversationId: string | undefined,
+  ...phones: Array<string | undefined>
+): Promise<string[]> {
+  const lead = conversationId
+    ? await ctx.runQuery(internal.qualifications.byElevenLabsId, { elevenLabsConversationId: conversationId })
+    : null;
+  return callerPhoneKeys(...phones, lead?.callerPhone);
+}
+
+type CallerTourRow = FunctionReturnType<typeof internal.tours.upcomingForCaller>[number];
+
+function tourSummary(t: CallerTourRow) {
+  return { tour_id: t.id, when: spokenLabel(t.start, t.timeZone), team_member: t.memberFirstName };
+}
+
+/**
+ * The tour a cancel or reschedule call is about, only if it really belongs to this caller: in
+ * their team, still upcoming, and booked on this call or under their phone number.
+ */
+async function findCallerTour(
+  ctx: GenericActionCtx<DataModel>,
+  body: { conversation_id?: string; agent_id?: string; tour_id?: unknown; caller_id?: string; caller_phone?: string },
+): Promise<{ orgId: string; tour: CallerTourRow } | null> {
+  const orgId = await resolveBookingOrg(ctx, body.conversation_id, body.agent_id);
+  if (!orgId || typeof body.tour_id !== "string") return null;
+  const tours = await ctx.runQuery(internal.tours.upcomingForCaller, {
+    orgId,
+    elevenLabsConversationId: body.conversation_id,
+    phoneKeys: await conversationPhoneKeys(ctx, body.conversation_id, body.caller_id, body.caller_phone),
+  });
+  const tour = tours.find((t) => t.id === body.tour_id);
+  return tour ? { orgId, tour } : null;
+}
+
 // Clerk → Convex user sync. Endpoint configured in the Clerk dashboard as
 // https://<deployment>.convex.site/auth
 http.route({
   path: "/auth",
   method: "POST",
   handler: httpAction(handleClerkWebhook),
+});
+
+// Google Calendar OAuth redirect. Registered on the Google OAuth client as an Authorized
+// redirect URI: https://<deployment>.convex.site/google/oauth/callback
+http.route({
+  path: "/google/oauth/callback",
+  method: "GET",
+  handler: httpAction(handleGoogleOAuthCallback),
 });
 
 // --- Server tools (webhooks the ElevenLabs agent calls mid-conversation) --
@@ -67,6 +150,8 @@ http.route({
 
     return Response.json({
       property_name: property.name,
+      // currentInternal can return the coded default, which has no address field at all.
+      property_address: (property as { address?: { formatted: string } }).address?.formatted ?? null,
       pets_allowed: property.petsAllowed,
       move_in_window_days: property.moveInWindowDays,
       requested_unit: unit
@@ -185,9 +270,118 @@ http.route({
 });
 
 /**
- * Captures a preferred tour slot for a qualified caller and sends an SMS confirmation.
- * There is no real calendar behind this yet — it is "captured and confirmed," not an actual
- * calendar write. Known, explicit v1 gap (see spec).
+ * Real open tour times, for the agent to offer. Read-only: nothing is held or booked until
+ * request_tour, so a time offered here can still be gone by then — request_tour handles that.
+ */
+http.route({
+  path: "/tools/find-tour-times",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    const conversationId: string | undefined = body.conversation_id;
+    const date = typeof body.date === "string" && body.date.trim() ? body.date.trim() : undefined;
+
+    // No day yet means the caller has not been asked. Return no times at all, so there is
+    // nothing to read out — only the instruction to ask.
+    if (!date) {
+      return Response.json({
+        needs_date: true,
+        times: [],
+        message:
+          "Do not suggest any days or times. Ask the caller what day and time would suit them, " +
+          "then call find_tour_times again with that date, and time if they gave one.",
+      });
+    }
+
+    const orgId = await resolveBookingOrg(ctx, conversationId, body.agent_id);
+
+    // Moving an existing tour: it must not block the times around it.
+    let ignoreTour: IgnoredTour | undefined;
+    if (orgId && typeof body.tour_id === "string" && body.tour_id) {
+      const tour = await ctx.runQuery(internal.tours.byIdString, { tourId: body.tour_id });
+      if (tour && tour.orgId === orgId && tour.status === "booked") {
+        ignoreTour = { id: tour._id, assignedUserId: tour.assignedUserId, start: tour.start, end: tour.end };
+      }
+    }
+
+    const result = await findTourTimes(
+      ctx,
+      orgId,
+      date,
+      typeof body.time === "string" ? body.time : undefined,
+      ignoreTour,
+    );
+
+    if (!result.available) {
+      return Response.json({
+        booking_available: false,
+        message:
+          "Booking isn't available right now. Ask for their preferred day and time and call " +
+          "request_tour with it as preferred_slot; the team will confirm with them.",
+      });
+    }
+
+    if (conversationId) {
+      await ctx.runMutation(internal.tours.recordTimeCheck, {
+        elevenLabsConversationId: conversationId,
+        starts: result.times.map((t) => t.start),
+      });
+    }
+
+    const requested = result.requested;
+
+    // "Taken" by their own tour is a different conversation from "taken" by someone else.
+    let ownTour: CallerTourRow | undefined;
+    if (requested && !requested.open && orgId) {
+      const mine = await ctx.runQuery(internal.tours.upcomingForCaller, {
+        orgId,
+        elevenLabsConversationId: conversationId,
+        phoneKeys: await conversationPhoneKeys(ctx, conversationId),
+      });
+      ownTour = mine.find((t) => t.id !== ignoreTour?.id && formatLocalDateTime(t.start, t.timeZone) === requested.start);
+    }
+
+    const why: Record<string, string> = {
+      passed: "That time has already passed.",
+      too_soon: "Tours need at least two hours' notice, so that time is too soon.",
+      outside_hours: "That time is outside the team's tour hours.",
+      taken: "That time is already taken.",
+    };
+    const offer =
+      result.times.length === 0
+        ? "Nothing else is open in the next week, so offer to have the team call them back."
+        : result.sameDay
+          ? "Offer the times listed, which are on the day they asked for."
+          : "Nothing is open on the day they asked for, so say that, then offer the times listed and say which day each is on.";
+
+    return Response.json({
+      booking_available: true,
+      time_zone: result.timeZone,
+      requested_time: requested
+        ? { start: requested.start, label: requested.label, available: requested.open, reason: requested.reason }
+        : null,
+      callers_own_tour: ownTour ? tourSummary(ownTour) : null,
+      same_day: result.sameDay,
+      times: result.times,
+      message: requested?.open
+        ? "The exact time they asked for is open. Read it back and get a yes, then book requested_time.start."
+        : requested
+          ? ownTour
+            ? "The caller already has their own tour booked at exactly that time (callers_own_tour). Tell them " +
+              "that, and ask whether they want to keep it or pick a different time."
+            : `${why[requested.reason]} Tell them that. ${offer}`
+          : offer,
+    });
+  }),
+});
+
+/**
+ * Books a tour for a qualified caller: slot_start (a time find_tour_times offered) goes straight
+ * into the calendar of whoever on the team is free and has the fewest tours that week.
+ *
+ * preferred_slot without slot_start is the fallback for a team that has not set booking up —
+ * the time is captured on the lead for someone to confirm, exactly as before booking existed.
+ * No SMS in either case: confirmation texts are still switched off.
  */
 http.route({
   path: "/tools/request-tour",
@@ -196,16 +390,115 @@ http.route({
     const body = await request.json();
     const {
       conversation_id: conversationId,
+      agent_id: agentId,
+      slot_start: slotStart,
       preferred_slot: preferredSlot,
       caller_name: callerName,
       caller_phone: callerPhone,
+      caller_id: callerId,
     } = body;
 
-    if (!conversationId || !preferredSlot || !callerPhone) {
+    if (!conversationId || (!slotStart && !preferredSlot) || !callerPhone) {
       return Response.json(
-        { error: "missing conversation_id, preferred_slot, or caller_phone" },
+        { error: "missing conversation_id, caller_phone, or one of slot_start / preferred_slot" },
         { status: 400 },
       );
+    }
+
+    if (slotStart) {
+      // Both checks run before anything touches a calendar. The model on a call does not get to
+      // book a time the caller never heard read back, or one from an older list than the latest.
+      if (!isConfirmed(body.caller_confirmed)) {
+        return Response.json({
+          booked: false,
+          reason:
+            "Not booked yet. Read the exact day and time back to the caller, wait for a clear yes, " +
+            "then call request_tour again with caller_confirmed set to true.",
+        });
+      }
+      const offered = await ctx.runQuery(internal.tours.lastTimeCheck, {
+        elevenLabsConversationId: conversationId,
+      });
+      if (!offered || !offered.includes(slotStart)) {
+        return Response.json({
+          booked: false,
+          reason:
+            "Not booked. That time is not in your latest find_tour_times result. Call find_tour_times " +
+            "with the day and time the caller wants, then book one of the times it returns.",
+        });
+      }
+
+      const orgId = await resolveBookingOrg(ctx, conversationId, agentId);
+
+      // A caller may have more than one tour, but never without knowing about the ones they already
+      // have: the first attempt stops here so the agent has to mention them. Most people who hear
+      // "you already have one on Tuesday" decide to move or cancel it; the rest say yes, book
+      // this one as well, and the agent calls again with also_book.
+      if (orgId && !isConfirmed(body.also_book)) {
+        const existing = await ctx.runQuery(internal.tours.upcomingForCaller, {
+          orgId,
+          elevenLabsConversationId: conversationId,
+          phoneKeys: await conversationPhoneKeys(ctx, conversationId, callerId, callerPhone),
+        });
+        if (existing.length > 0) {
+          return Response.json({
+            booked: false,
+            existing_tours: existing.slice(0, 3).map(tourSummary),
+            reason:
+              "Not booked yet. This caller already has the upcoming tours in existing_tours. Tell them when " +
+              "they are, then ask whether they want to book this new tour as well. If yes, call request_tour " +
+              "again with also_book set to true. If they would rather move or cancel an existing tour, use " +
+              "reschedule_tour or cancel_tour instead.",
+          });
+        }
+      }
+
+      const result = await bookTour(ctx, orgId, {
+        slotStart,
+        callerName,
+        callerPhone,
+        elevenLabsConversationId: conversationId,
+      });
+
+      if (result.status === "booked") {
+        await ctx.runMutation(internal.qualifications.upsertByConversationId, {
+          elevenLabsConversationId: conversationId,
+          callerName,
+          callerPhone,
+          tourSlot: `${result.label} with ${result.memberFirstName}`,
+          tourConfirmed: true,
+        });
+        return Response.json({
+          booked: true,
+          when: result.label,
+          team_member: result.memberFirstName,
+          property_name: result.propertyName,
+          property_address: result.propertyAddress,
+        });
+      }
+      if (result.status === "taken") {
+        await ctx.runMutation(internal.tours.recordTimeCheck, {
+          elevenLabsConversationId: conversationId,
+          starts: result.otherTimes.map((t) => t.start),
+        });
+        return Response.json({
+          booked: false,
+          reason: "That time is no longer open.",
+          other_times: result.otherTimes,
+        });
+      }
+      if (result.status === "invalid") {
+        return Response.json({ booked: false, reason: result.reason });
+      }
+      // "unavailable": booking is not set up for this team. Capture it instead, if the agent
+      // gave us a spoken time to capture.
+      if (!preferredSlot) {
+        return Response.json({
+          booked: false,
+          booking_available: false,
+          message: "Ask for their preferred day and time and call request_tour again with preferred_slot.",
+        });
+      }
     }
 
     await ctx.runMutation(internal.qualifications.upsertByConversationId, {
@@ -232,7 +525,179 @@ http.route({
       // tell the caller the request failed over a texting problem.
     }
 
-    return Response.json({ confirmed: true, sms_sent: smsSent });
+    return Response.json({
+      booked: false,
+      captured: true,
+      sms_sent: smsSent,
+      message: "Their preferred time is noted. Tell them the team will confirm the tour with them.",
+    });
+  }),
+});
+
+/**
+ * The caller's upcoming tours: booked earlier on this call, or on another call under the same
+ * phone number (caller ID, or the number they give). What cancel_tour and reschedule_tour act on.
+ */
+http.route({
+  path: "/tools/find-my-tour",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    const orgId = await resolveBookingOrg(ctx, body.conversation_id, body.agent_id);
+    if (!orgId) {
+      return Response.json({
+        found: false,
+        tours: [],
+        message: "Bookings can't be looked up on this call. Offer to have the team call them back.",
+      });
+    }
+
+    const keys = await conversationPhoneKeys(ctx, body.conversation_id, body.caller_id, body.caller_phone);
+    const tours = await ctx.runQuery(internal.tours.upcomingForCaller, {
+      orgId,
+      elevenLabsConversationId: body.conversation_id,
+      phoneKeys: keys,
+    });
+
+    if (tours.length === 0) {
+      return Response.json({
+        found: false,
+        tours: [],
+        message: body.caller_phone
+          ? "No upcoming tour under that number. Ask once whether they booked with a different number; " +
+            "if not, say you can't find a booking and offer to have the team call them back."
+          : "No booking found on this call. Ask for the phone number they booked with, then call " +
+            "find_my_tour again with it as caller_phone.",
+      });
+    }
+
+    return Response.json({
+      found: true,
+      tours: tours.slice(0, 3).map(tourSummary),
+      message:
+        tours.length === 1
+          ? "Read this tour's day and time back and confirm it is the one they mean."
+          : "Read these back and ask which one they mean.",
+    });
+  }),
+});
+
+/** Cancels the caller's own upcoming tour: its Google event goes, and the tour is marked cancelled. */
+http.route({
+  path: "/tools/cancel-tour",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    if (!body.conversation_id || !body.tour_id) {
+      return Response.json({ error: "missing conversation_id or tour_id" }, { status: 400 });
+    }
+    if (!isConfirmed(body.caller_confirmed)) {
+      return Response.json({
+        cancelled: false,
+        reason:
+          "Not cancelled yet. Read the tour's day and time back, confirm they want it cancelled, then " +
+          "call cancel_tour again with caller_confirmed set to true.",
+      });
+    }
+
+    const target = await findCallerTour(ctx, body);
+    if (!target) {
+      return Response.json({
+        cancelled: false,
+        reason: "No upcoming tour with that tour_id belongs to this caller. Call find_my_tour and use a tour_id it returns.",
+      });
+    }
+
+    const when = spokenLabel(target.tour.start, target.tour.timeZone);
+    try {
+      await cancelTourNow(ctx, target.tour.id);
+    } catch (err) {
+      console.error(`[cancel-tour] could not cancel ${target.tour.id}:`, err);
+      return Response.json({
+        cancelled: false,
+        reason: "It could not be cancelled right now. Apologize and offer to have the team call them back.",
+      });
+    }
+
+    // The lead the tour was booked on should no longer read as a booked tour.
+    if (target.tour.elevenLabsConversationId) {
+      await ctx.runMutation(internal.qualifications.upsertByConversationId, {
+        elevenLabsConversationId: target.tour.elevenLabsConversationId,
+        tourSlot: `${when} with ${target.tour.memberFirstName} (cancelled)`,
+        tourConfirmed: false,
+      });
+    }
+
+    return Response.json({ cancelled: true, when });
+  }),
+});
+
+/**
+ * Moves the caller's own upcoming tour to a new time. The same guards as booking: the caller
+ * heard the new time read back and said yes, and it came from the latest find_tour_times result.
+ */
+http.route({
+  path: "/tools/reschedule-tour",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    const { conversation_id: conversationId, tour_id: tourId, slot_start: slotStart } = body;
+    if (!conversationId || !tourId || !slotStart) {
+      return Response.json({ error: "missing conversation_id, tour_id or slot_start" }, { status: 400 });
+    }
+    if (!isConfirmed(body.caller_confirmed)) {
+      return Response.json({
+        rescheduled: false,
+        reason:
+          "Not moved yet. Read the new day and time back to the caller, wait for a clear yes, then call " +
+          "reschedule_tour again with caller_confirmed set to true.",
+      });
+    }
+    const offered = await ctx.runQuery(internal.tours.lastTimeCheck, { elevenLabsConversationId: conversationId });
+    if (!offered || !offered.includes(slotStart)) {
+      return Response.json({
+        rescheduled: false,
+        reason:
+          "Not moved. That time is not in your latest find_tour_times result. Call find_tour_times with " +
+          "the day and time they want and this tour_id, then use a time it returns.",
+      });
+    }
+
+    const target = await findCallerTour(ctx, body);
+    if (!target) {
+      return Response.json({
+        rescheduled: false,
+        reason: "No upcoming tour with that tour_id belongs to this caller. Call find_my_tour and use a tour_id it returns.",
+      });
+    }
+
+    const previousTime = spokenLabel(target.tour.start, target.tour.timeZone);
+    const result = await rescheduleTour(ctx, target.orgId, { tour: target.tour, slotStart });
+
+    if (result.status === "booked") {
+      if (target.tour.elevenLabsConversationId) {
+        await ctx.runMutation(internal.qualifications.upsertByConversationId, {
+          elevenLabsConversationId: target.tour.elevenLabsConversationId,
+          tourSlot: `${result.label} with ${result.memberFirstName}`,
+          tourConfirmed: true,
+        });
+      }
+      return Response.json({
+        rescheduled: true,
+        previous_time: previousTime,
+        when: result.label,
+        team_member: result.memberFirstName,
+        property_address: result.propertyAddress,
+      });
+    }
+    if (result.status === "taken") {
+      await ctx.runMutation(internal.tours.recordTimeCheck, {
+        elevenLabsConversationId: conversationId,
+        starts: result.otherTimes.map((t) => t.start),
+      });
+      return Response.json({ rescheduled: false, reason: "That time is no longer open.", other_times: result.otherTimes });
+    }
+    return Response.json({ rescheduled: false, reason: result.reason });
   }),
 });
 

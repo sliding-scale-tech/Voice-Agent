@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { propertyAddressValidator } from "./placesApi";
 
 export default defineSchema({
   // Mirrors Clerk users via the /auth webhook (user.created / session.created / user.updated).
@@ -33,6 +34,10 @@ export default defineSchema({
     // schedules it, and the Knowledge tab, a first call and a Settings save all call it as a
     // fallback — this is what keeps overlapping runs from each creating an ElevenLabs agent.
     bootstrapStartedAt: v.optional(v.number()),
+    // IANA time zone the property's tours happen in, set by an admin on the Availability page.
+    // No default on purpose: guessing one books tours at the wrong hour, so booking stays off
+    // (the agent falls back to capturing a preferred time) until someone sets it.
+    timeZone: v.optional(v.string()),
   }),
 
   // One row per person per team. The unique index is what makes "one team per person" a fact
@@ -68,6 +73,87 @@ export default defineSchema({
     .index("by_token_hash", ["tokenHash"])
     .index("by_org", ["orgId"])
     .index("by_email", ["email"]),
+
+  // --- Google Calendar -------------------------------------------------------
+  //
+  // One connection per person, not per team: tours go into the calendar of whoever gives them.
+  // Deliberately no orgId — which team someone is on is read from memberships at booking time,
+  // so removing a member from a team cannot leave their calendar attached to it.
+  googleCalendarConnections: defineTable({
+    userId: v.id("users"),
+    googleEmail: v.string(),
+    // Both tokens are AES-GCM ciphertext (googleApi.encryptToken), never the raw token. The
+    // key lives only in the deployment's environment.
+    refreshToken: v.string(),
+    accessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    scopes: v.array(v.string()),
+    connectedAt: v.number(),
+    updatedAt: v.number(),
+    // Set when Google rejects the refresh token (revoked, or a Testing-mode app's 7-day expiry).
+    // Kept rather than deleted so the page can ask them to reconnect.
+    invalidAt: v.optional(v.number()),
+  }).index("by_user", ["userId"]),
+
+  // In-flight OAuth attempts. Only a SHA-256 of the state is stored, for the same reason as
+  // invites.tokenHash; a row is deleted the moment Google redirects back with it.
+  googleOAuthStates: defineTable({
+    stateHash: v.string(),
+    userId: v.id("users"),
+    expiresAt: v.number(),
+  })
+    .index("by_state_hash", ["stateHash"])
+    .index("by_user", ["userId"]),
+
+  // Each person's own tour hours. No row means the defaults in tourSchedule.ts (available,
+  // Monday to Friday 9 to 5), so a new teammate is bookable the moment their calendar connects.
+  tourAvailability: defineTable({
+    userId: v.id("users"),
+    availableForTours: v.boolean(),
+    // day: 0 = Sunday … 6 = Saturday; start/end "HH:MM" in the team's time zone. A day that
+    // is not listed is a day off.
+    weeklyHours: v.array(v.object({ day: v.number(), start: v.string(), end: v.string() })),
+    // Specific dates ("YYYY-MM-DD", team-local) this person is off — a one-off exception on top
+    // of weeklyHours, for things a recurring schedule can't express (a holiday, an appointment).
+    // Sarah skips these days entirely regardless of weeklyHours. Kept as a plain array: a person
+    // has at most a handful of these upcoming at once, never enough to need its own table.
+    daysOff: v.optional(v.array(v.string())),
+    // When they last saved their own hours. Separate from the row existing, because an admin
+    // switching someone's tours off creates the row too — and that person should still be asked
+    // for their hours the first time they open the Calendar page.
+    hoursSavedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  // The times find_tour_times last gave the agent on one call. request_tour may only book one of
+  // these: a small model on a phone call will otherwise book a slot from an earlier list after the
+  // caller has asked for something else (a caller asked for 9am and was booked at 2pm).
+  tourTimeChecks: defineTable({
+    elevenLabsConversationId: v.string(),
+    starts: v.array(v.string()), // "YYYY-MM-DDTHH:MM", as returned to the agent
+    updatedAt: v.number(),
+  })
+    .index("by_conversation", ["elevenLabsConversationId"])
+    .index("by_updated", ["updatedAt"]),
+
+  // Tours Sarah booked into someone's calendar.
+  tours: defineTable({
+    orgId: v.string(), // same string form as the other per-team tables, for deleteOrgRows
+    assignedUserId: v.id("users"),
+    start: v.number(), // epoch ms; the event itself, not including the buffer
+    end: v.number(),
+    timeZone: v.string(), // the team's zone when booked, so the time reads right if it changes
+    status: v.union(v.literal("booked"), v.literal("cancelled")),
+    // Absent only for the instant between reserving the slot and Google creating the event.
+    googleEventId: v.optional(v.string()),
+    callerName: v.optional(v.string()),
+    callerPhone: v.optional(v.string()),
+    elevenLabsConversationId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org_and_start", ["orgId", "start"])
+    .index("by_assignee_and_start", ["assignedUserId", "start"]),
 
   agents: defineTable({
     // The Clerk organization this row belongs to. Every dashboard table is keyed by org rather
@@ -260,6 +346,10 @@ export default defineSchema({
     ),
     petsAllowed: v.boolean(),
     moveInWindowDays: v.number(),
+    // Picked from Google Places on the Property page. Becomes the location of every tour event
+    // and what Sarah tells a renter when she books. Never cloned from the template: it is one
+    // specific building, not a sensible default for someone else's.
+    address: v.optional(propertyAddressValidator),
     updatedAt: v.number(),
   })
     .index("by_org", ["orgId"])

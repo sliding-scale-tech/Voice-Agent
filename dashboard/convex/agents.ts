@@ -19,6 +19,7 @@ import {
   upgradeForScreening,
 } from "./screeningPrompt";
 import { coreBlock } from "./coreQuestions";
+import { withTourBooking } from "./tourPrompt";
 import { currentOrg, requireOrgId } from "./authz";
 
 // Jessica — premade, American, female, "conversational" use case. Premade rather than a
@@ -108,9 +109,7 @@ YOUR JOB, IN ORDER:
    doesn't allow pets" or "our lowest rent is above your budget"), and do NOT offer a tour
    you already know will be rejected — that is the one thing you must never do, it breaks
    trust with the property manager.
-5. If qualified and they want a tour, ask for a preferred day and time, then call
-   request_tour with that plus their name and callback number. Tell them a confirmation
-   text is on its way.
+5. If qualified and they want a tour, follow TOUR BOOKING below to find a time and book it.
 6. Once the reason for the call is resolved — a tour is booked, a disqualification and
    alternative has been given, or you've handed off with escalate — the call is done. Ask
    one time, "Is there anything else I can help with?" If no, say a short, warm goodbye and
@@ -231,6 +230,9 @@ function composePrompt(
   questions: ScreeningQuestion[],
   disabledCore: string[] = [],
 ): string {
+  // First, so the old "confirmation text is on its way" step is rewritten before anything else
+  // is spliced in around it — see convex/tourPrompt.ts.
+  prompt = withTourBooking(prompt);
   let next = prompt.includes(CORE_PLACEHOLDER)
     ? prompt.replace(CORE_PLACEHOLDER, coreBlock(disabledCore))
     : `${prompt}\n\n${coreBlock(disabledCore)}`;
@@ -287,6 +289,18 @@ export const currentInternal = internalQuery({
       .query("agents")
       .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .first();
+  },
+});
+
+/** The team behind an ElevenLabs agent — how tour booking identifies a team mid-call. */
+export const orgByElevenLabsAgentId = internalQuery({
+  args: { elevenLabsAgentId: v.string() },
+  handler: async (ctx, args) => {
+    const agent = await ctx.db
+      .query("agents")
+      .withIndex("by_elevenlabs_id", (q) => q.eq("elevenLabsAgentId", args.elevenLabsAgentId))
+      .first();
+    return agent?.orgId ?? null;
   },
 });
 
@@ -381,18 +395,145 @@ const TOOL_DEFS = (siteUrl: string): el.ToolDefinition[] => [
     },
   },
   {
-    name: "request_tour",
+    name: "find_tour_times",
     description:
-      "Captures a preferred tour day and time for a caller who has already qualified, and " +
-      "sends them a confirmation text. Only call this after check_qualification returned " +
-      "qualifies: true.",
-    url: `${siteUrl}/tools/request-tour`,
-    required: ["conversation_id", "preferred_slot", "caller_name", "caller_phone"],
+      "Checks open tour times on the day the caller asked for. Only call this after the caller " +
+      "has told you what day suits them; never to get times to suggest. Call it again every time " +
+      "they ask for a different day or time. Only offer times from the latest result.",
+    url: `${siteUrl}/tools/find-tour-times`,
+    required: ["conversation_id", "date"],
     properties: {
       conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
-      preferred_slot: { type: "string", description: "The day and time they'd like to tour." },
+      // Identifies the team mid-call on a phone line, where no conversations row exists yet —
+      // see resolveBookingOrg in convex/http.ts.
+      agent_id: { type: "string", dynamicVariable: "system__agent_id" },
+      date: {
+        type: "string",
+        description:
+          "The day the caller asked for, as YYYY-MM-DD, worked out from the current date. " +
+          "Required — ask them first if they have not said.",
+      },
+      time: {
+        type: "string",
+        description:
+          "The exact time they asked for, as 24-hour HH:MM (e.g. 10:00, 14:30). Send it whenever " +
+          "they name a time, together with date — the result says whether that exact time is open.",
+      },
+      tour_id: {
+        type: "string",
+        description:
+          "Only when moving an existing tour: its tour_id from find_my_tour, so that tour does not " +
+          "block the times around it. Leave out when booking a new tour.",
+      },
+    },
+  },
+  {
+    name: "request_tour",
+    description:
+      "Books a tour for a caller who has already qualified. Pass slot_start with a start value " +
+      "from your latest find_tour_times result, only after reading it back and hearing yes. " +
+      "Only if find_tour_times said booking isn't available, pass " +
+      "preferred_slot with their preferred day and time instead. Only call this after " +
+      "check_qualification returned qualifies: true.",
+    url: `${siteUrl}/tools/request-tour`,
+    // Neither slot field is required: which one applies depends on whether the team has booking
+    // set up, and the webhook rejects a call that sends neither.
+    required: ["conversation_id", "caller_name", "caller_phone", "caller_confirmed"],
+    properties: {
+      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
+      agent_id: { type: "string", dynamicVariable: "system__agent_id" },
+      caller_id: { type: "string", dynamicVariable: "system__caller_id" },
+      also_book: {
+        type: "boolean",
+        description:
+          "Only after request_tour told you the caller already has upcoming tours, you told them, and " +
+          "they said they want this new tour as well. Leave out otherwise.",
+      },
+      caller_confirmed: {
+        type: "boolean",
+        description:
+          "True only after you read the exact day and time back to the caller and they clearly " +
+          "said yes. Booking is refused otherwise.",
+      },
+      slot_start: {
+        type: "string",
+        description:
+          "The exact start value of the time the caller chose and confirmed, from your latest " +
+          "find_tour_times result, e.g. 2026-09-16T14:00.",
+      },
+      preferred_slot: {
+        type: "string",
+        description: "Their preferred day and time in words. Only when booking isn't available.",
+      },
       caller_name: { type: "string", description: "The caller's name." },
-      caller_phone: { type: "string", description: "Where to send the confirmation text." },
+      caller_phone: { type: "string", description: "A callback number for the caller." },
+    },
+  },
+  {
+    name: "find_my_tour",
+    description:
+      "Looks up the caller's upcoming tour: one booked earlier on this call, or on another call under " +
+      "the same phone number. Call this first whenever a caller wants to cancel or move a tour.",
+    url: `${siteUrl}/tools/find-my-tour`,
+    required: ["conversation_id"],
+    properties: {
+      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
+      agent_id: { type: "string", dynamicVariable: "system__agent_id" },
+      caller_id: { type: "string", dynamicVariable: "system__caller_id" },
+      caller_phone: {
+        type: "string",
+        description:
+          "The phone number the caller says they booked with, as digits. Leave out if they have not given one.",
+      },
+    },
+  },
+  {
+    name: "cancel_tour",
+    description:
+      "Cancels the caller's upcoming tour. Only after find_my_tour returned it, you read its day and " +
+      "time back, and the caller clearly confirmed they want it cancelled.",
+    url: `${siteUrl}/tools/cancel-tour`,
+    required: ["conversation_id", "tour_id", "caller_confirmed"],
+    properties: {
+      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
+      agent_id: { type: "string", dynamicVariable: "system__agent_id" },
+      caller_id: { type: "string", dynamicVariable: "system__caller_id" },
+      tour_id: { type: "string", description: "The tour_id from find_my_tour." },
+      caller_phone: {
+        type: "string",
+        description: "The phone number they booked with, if they gave one, as digits.",
+      },
+      caller_confirmed: {
+        type: "boolean",
+        description: "True only after the caller clearly confirmed they want this tour cancelled.",
+      },
+    },
+  },
+  {
+    name: "reschedule_tour",
+    description:
+      "Moves the caller's existing tour to a new time. Use this, never request_tour, when someone who " +
+      "already has a tour wants a different time. Only with a time from your latest find_tour_times " +
+      "result (called with this tour_id), after reading the new time back and hearing yes.",
+    url: `${siteUrl}/tools/reschedule-tour`,
+    required: ["conversation_id", "tour_id", "slot_start", "caller_confirmed"],
+    properties: {
+      conversation_id: { type: "string", dynamicVariable: "system__conversation_id" },
+      agent_id: { type: "string", dynamicVariable: "system__agent_id" },
+      caller_id: { type: "string", dynamicVariable: "system__caller_id" },
+      tour_id: { type: "string", description: "The tour_id from find_my_tour." },
+      slot_start: {
+        type: "string",
+        description: "The exact start value of the new time, from your latest find_tour_times result.",
+      },
+      caller_phone: {
+        type: "string",
+        description: "The phone number they booked with, if they gave one, as digits.",
+      },
+      caller_confirmed: {
+        type: "boolean",
+        description: "True only after you read the new day and time back and the caller said yes.",
+      },
     },
   },
   {

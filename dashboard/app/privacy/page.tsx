@@ -40,14 +40,14 @@ export default function PrivacyPolicyPage() {
         <li>Your name, email address and profile image, and whether you sign in with a password or with Google.</li>
         <li>The team you belong to, your role (admin or member), and invitations sent to or by you.</li>
         <li>
-          Your tour availability settings: whether you are available for tours, your working hours and the days you
-          turn off.
+          Your tour availability settings: whether you take tours (which you or a team admin can switch), your
+          working hours and the days you turn off.
         </li>
       </ul>
 
       <h3>Content our customers add</h3>
       <ul>
-        <li>Property details such as unit types, rents, pet policy and move-in windows.</li>
+        <li>Property details such as the property&apos;s address, unit types, rents, pet policy and move-in windows.</li>
         <li>
           Knowledge base entries, including text extracted from PDF or Word files you upload. The uploaded file
           itself is deleted once its text has been extracted.
@@ -99,9 +99,10 @@ export default function PrivacyPolicyPage() {
       <p>With your permission, when you connect your Google account we access:</p>
       <ul>
         <li>Your Google account email address, to show which account is connected.</li>
+        <li>Your calendar&apos;s free/busy information, meaning the times you are busy.</li>
         <li>
-          Your calendar&apos;s free/busy information, meaning the times you are busy. We do not use the titles,
-          descriptions, locations or attendees of your other events.
+          When you open your own calendar in Simplr, the events on your primary Google Calendar for the week you
+          are viewing, including their titles and times.
         </li>
         <li>The ability to create, update and delete the tour events that Simplr adds to your calendar.</li>
       </ul>
@@ -112,21 +113,28 @@ export default function PrivacyPolicyPage() {
           leaving at least 15 minutes between a tour and anything else in your calendar.
         </li>
         <li>To add a tour you are assigned to your Google Calendar, and to update or remove it if it changes.</li>
+        <li>
+          To show you your own events next to the tours booked for you on Simplr&apos;s calendar page. Only you see
+          the titles and details of your events. Your team&apos;s admins can view your calendar in Simplr, where
+          your other events appear only as busy times, alongside the tours booked for you.
+        </li>
         <li>To show you whether your calendar is connected.</li>
       </ul>
       <h3>How we store it</h3>
       <p>
         We store the access tokens Google gives us, encrypted, so tours can be booked while you are offline. Free/busy
-        information is checked when a tour is being booked and is not stored. We store the details of the tours we
-        book, including the Google Calendar event identifier.
+        information and the events shown on the calendar page are read from Google when they are needed and are not
+        stored. We store the details of the tours we book, including the Google Calendar event identifier.
       </p>
       <h3>How we share it</h3>
       <p>
         We do not sell Google user data or use it for advertising. We do not use it to develop, improve or train
         artificial intelligence or machine learning models. We only transfer it to others when necessary to provide
         the tour booking feature (for example, to the database provider that hosts Simplr), to comply with the law,
-        or as part of a merger or acquisition with notice to you. The renter who books a tour is told its date,
-        time, address and the name of the team member giving it, not anything else from your calendar. People at
+        or as part of a merger or acquisition with notice to you. Your team&apos;s admins can see when you are busy
+        and the tours booked for you, but never the titles or details of your other events. The renter who books a
+        tour is told its date, time, address and the name of the team member giving it, not anything else from your
+        calendar. People at
         Simplr do not read your Google data unless you ask us to, it is needed to investigate security or abuse, or
         the law requires it.
       </p>
@@ -167,7 +175,7 @@ export default function PrivacyPolicyPage() {
         <li><strong>Clerk</strong>: sign-in and account management.</li>
         <li><strong>Convex</strong>: database and backend hosting.</li>
         <li><strong>ElevenLabs</strong>: the voice assistant, speech processing, transcription and knowledge base search.</li>
-        <li><strong>Google</strong>: Google sign-in, Google Calendar, and the Gemini API, which writes SMS and WhatsApp replies.</li>
+        <li><strong>Google</strong>: Google sign-in, Google Calendar, Google Maps Platform, which suggests and looks up property addresses as you type them, and the Gemini API, which writes SMS and WhatsApp replies.</li>
         <li><strong>Twilio</strong>: sending and receiving SMS.</li>
         <li><strong>Resend</strong>: sending email.</li>
         <li><strong>WhatsApp</strong>: messages sent and received through the property&apos;s linked WhatsApp number.</li>

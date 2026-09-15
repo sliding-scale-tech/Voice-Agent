@@ -46,8 +46,19 @@ export const overview = query({
 
     const members = await Promise.all(
       memberships.map(async (m) => {
-        const user = await ctx.db.get(m.userId);
+        const [user, hours, connection] = await Promise.all([
+          ctx.db.get(m.userId),
+          ctx.db
+            .query("tourAvailability")
+            .withIndex("by_user", (q) => q.eq("userId", m.userId))
+            .unique(),
+          ctx.db
+            .query("googleCalendarConnections")
+            .withIndex("by_user", (q) => q.eq("userId", m.userId))
+            .unique(),
+        ]);
         const name = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
+        const takingTours = hours?.availableForTours ?? true;
         return {
           membershipId: m._id,
           userId: m.userId,
@@ -57,6 +68,18 @@ export const overview = query({
           role: m.role,
           isSelf: m.userId === org.user._id,
           joinedAt: m.createdAt,
+          takingTours,
+          // Whether Sarah can actually book them right now, and if not, the one thing in the way.
+          // Same rules as tours.bookingContext, which is what booking really reads.
+          tourStatus: !takingTours
+            ? ("off" as const)
+            : !connection
+              ? ("no_calendar" as const)
+              : connection.invalidAt
+                ? ("reconnect" as const)
+                : !organization?.timeZone
+                  ? ("no_time_zone" as const)
+                  : ("bookable" as const),
         };
       }),
     );
@@ -388,7 +411,7 @@ export const peekInvite = action({
 
 // --- Helpers --------------------------------------------------------------
 
-function randomToken(): string {
+export function randomToken(): string {
   const bytes = new Uint8Array(TOKEN_BYTES);
   crypto.getRandomValues(bytes);
   // base64url: URL-safe without percent-encoding, so the link survives email clients intact.
@@ -399,7 +422,7 @@ function randomToken(): string {
 }
 
 /** Only the hash is stored, so a dump of the invites table cannot be replayed into a team. */
-async function sha256(value: string): Promise<string> {
+export async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -500,6 +523,7 @@ export const deleteOrgRows = internalMutation({
       "screeningQuestions",
       "screeningBuiltins",
       "tenantIssues",
+      "tours",
     ] as const) {
       const rows = (await ctx.db.query(table).collect()).filter((r) => r.orgId === args.orgId);
       await drop(table, rows as never[]);
@@ -579,6 +603,16 @@ export const deleteUserRows = internalMutation({
       }
     }
 
+    // purgeUser revokes and removes the Google connection first; this sweeps what is left.
+    for (const table of ["googleCalendarConnections", "googleOAuthStates", "tourAvailability"] as const) {
+      for (const row of await ctx.db
+        .query(table)
+        .withIndex("by_user", (q) => q.eq("userId", args.userId))
+        .collect()) {
+        await ctx.db.delete(row._id);
+      }
+    }
+
     await ctx.db.delete(args.userId);
   },
 });
@@ -620,6 +654,10 @@ export const purgeUser = internalAction({
     if (args.dryRun) {
       return { dryRun: true, plan, wouldDeleteFromElevenLabs: plan.deletesTeam ? footprint : null };
     }
+
+    // Their Google tokens are revoked at Google, not just dropped here — a deleted account
+    // should not leave Simplr holding working access to someone's calendar.
+    await ctx.runAction(internal.googleCalendar.forgetUser, { userId: plan.userId });
 
     const elevenLabs = { agents: 0, kbDocs: 0, failures: [] as string[] };
 

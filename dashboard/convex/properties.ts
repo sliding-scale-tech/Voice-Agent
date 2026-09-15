@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { currentOrg, requireOrg } from "./authz";
+import { propertyAddressValidator } from "./placesApi";
 
 const DEFAULT_PROPERTY = {
   name: "Maple Court Apartments",
@@ -128,6 +129,7 @@ export const save = mutation({
     ),
     petsAllowed: v.boolean(),
     moveInWindowDays: v.number(),
+    address: v.optional(propertyAddressValidator),
   },
   handler: async (ctx, args) => {
     const { orgId, user } = await requireOrg(ctx);
@@ -135,7 +137,9 @@ export const save = mutation({
       .query("properties")
       .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .first();
-    const row = { ...args, orgId, userId: user._id, updatedAt: Date.now() };
+    // `address` spelled out even when undefined: a patch only removes a field whose key is
+    // present, so leaving it to the spread would make clearing an address silently do nothing.
+    const row = { ...args, address: args.address, orgId, userId: user._id, updatedAt: Date.now() };
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("properties", row);
 

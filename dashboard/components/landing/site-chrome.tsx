@@ -59,6 +59,12 @@ export function SiteFooter() {
                 <li>
                   <Link href="/sign-in">Login</Link>
                 </li>
+                <li>
+                  <Link href="/privacy">Privacy Policy</Link>
+                </li>
+                <li>
+                  <Link href="/terms">Terms of Service</Link>
+                </li>
               </ul>
             </nav>
           </div>

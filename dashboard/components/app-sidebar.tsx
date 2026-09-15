@@ -21,6 +21,7 @@ import {
   LogOut,
   Check,
   ListTodo,
+  CalendarRange,
 } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "convex/react";
@@ -49,6 +50,10 @@ const ALL_LINKS: Array<{
   // dashboard with. The page itself hides every control they cannot use, and convex/team.ts
   // re-checks the role on every write — the nav flag was never the boundary.
   { href: "/team", label: "Team", icon: UserPlus, hidden: false },
+  // Everyone sees their own week — connecting Google Calendar and setting tour hours all happen
+  // right here, the first time someone opens it. Admins can also open a teammate's (busy blocks
+  // only) — see convex/calendarView.ts.
+  { href: "/calendar", label: "Calendar", icon: CalendarRange, hidden: false },
   { href: "/settings", label: "Agent", icon: Settings, hidden: true },
 ];
 
@@ -57,7 +62,7 @@ const LINKS = ALL_LINKS.filter((l) => !l.hidden);
 // The bottom nav only has room for a handful of items; the rest live in the "More" sheet.
 const BOTTOM_NAV_LINKS = LINKS.filter((l) => ["/call", "/leads", "/tenants"].includes(l.href));
 const MORE_LINKS = LINKS.filter((l) =>
-  ["/whatsapp", "/property", "/screening", "/docs", "/tasks", "/team", "/settings"].includes(l.href),
+  ["/whatsapp", "/property", "/screening", "/docs", "/tasks", "/team", "/calendar", "/settings"].includes(l.href),
 );
 
 /**
