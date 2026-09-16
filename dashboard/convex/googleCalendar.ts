@@ -10,6 +10,7 @@ import {
   query,
 } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
+import { appBaseUrl } from "./appUrl";
 import { currentUser, requireUserId } from "./authz";
 import * as google from "./googleApi";
 import { randomToken, sha256 } from "./team";
@@ -87,7 +88,7 @@ export async function handleOAuthCallback(
     new Response(null, {
       status: 302,
       headers: {
-        Location: `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/calendar?google=${result}`,
+        Location: `${appBaseUrl()}/calendar?google=${result}`,
       },
     });
 

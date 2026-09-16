@@ -10,6 +10,7 @@ import {
   query,
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
+import { appBaseUrl } from "./appUrl";
 import { currentOrg, requireOrgAdmin, requireOrgId, requireUser, currentUser } from "./authz";
 import * as el from "./elevenLabsApi";
 import { sendEmail } from "./resendApi";
@@ -181,8 +182,7 @@ export const invite = action({
       expiresAt: Date.now() + INVITE_TTL_MS,
     });
 
-    const base = process.env.APP_BASE_URL ?? "http://localhost:3000";
-    const link = `${base}/accept-invite?token=${token}`;
+    const link = `${appBaseUrl()}/accept-invite?token=${token}`;
 
     await sendEmail({
       to: email,

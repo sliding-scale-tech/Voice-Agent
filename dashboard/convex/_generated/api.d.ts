@@ -9,6 +9,7 @@
  */
 
 import type * as agents from "../agents.js";
+import type * as appUrl from "../appUrl.js";
 import type * as authz from "../authz.js";
 import type * as calendarView from "../calendarView.js";
 import type * as clerkWebhook from "../clerkWebhook.js";
@@ -63,6 +64,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agents: typeof agents;
+  appUrl: typeof appUrl;
   authz: typeof authz;
   calendarView: typeof calendarView;
   clerkWebhook: typeof clerkWebhook;
