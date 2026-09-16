@@ -261,9 +261,14 @@ export function updateTool(toolId: string, def: ToolDefinition) {
 }
 
 export function listTools() {
-  return request<{ tools: Array<{ id: string; tool_config: { name: string } }> }>(
-    "/convai/tools",
-  );
+  // api_schema.url is what agents.ensureTools matches on: the name is shared across every
+  // deployment pointed at this workspace, the URL is what makes a tool this deployment's.
+  return request<{
+    tools: Array<{
+      id: string;
+      tool_config: { name: string; api_schema?: { url?: string } };
+    }>;
+  }>("/convai/tools");
 }
 
 export function getWebrtcToken(agentId: string) {

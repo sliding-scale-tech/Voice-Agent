@@ -661,7 +661,16 @@ const TOOL_DEFS = (siteUrl: string): el.ToolDefinition[] => [
 
 /**
  * Idempotently creates the server tools this agent needs, checking for existing tools
- * by name first so re-running (e.g. after a deploy) doesn't create duplicates.
+ * first so re-running (e.g. after a deploy) doesn't create duplicates.
+ *
+ * Tools are matched by URL rather than by name, and that distinction is load-bearing. Tools
+ * live at the ElevenLabs workspace level while agents only hold tool ids, so with one
+ * workspace shared by several Convex deployments a name match made whichever deployment ran
+ * this last the owner of every tool: saving the prompt from dev rewrote production's tools to
+ * point at the dev deployment. Nothing looked wrong afterwards -- the tool ids never changed,
+ * so production agents kept their config and simply started writing live calls into the dev
+ * database. The URL is the one part of a tool that is specific to a deployment, so matching
+ * on it means each deployment finds, and can only overwrite, its own copies.
  */
 export const ensureTools = internalAction({
   args: {},
@@ -674,7 +683,7 @@ export const ensureTools = internalAction({
     const ids: string[] = [];
 
     for (const def of defs) {
-      const found = existing.find((t) => t.tool_config.name === def.name);
+      const found = existing.find((t) => t.tool_config.api_schema?.url === def.url);
       if (found) {
         // Keeps tool_ids stable but re-syncs settings like pre_tool_speech onto tools that
         // already existed before that field was added.
