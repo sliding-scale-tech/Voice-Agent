@@ -10,7 +10,7 @@ import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import * as el from "./elevenLabsApi";
-import { RESIDENT_TRIAGE_BLOCK } from "./residentTriage";
+import { LIFE_SAFETY_BLOCK, RESIDENT_TRIAGE_BLOCK } from "./residentTriage";
 import type { ScreeningQuestion } from "./qualifyRules";
 import {
   CORE_PLACEHOLDER,
@@ -137,6 +137,8 @@ know how it will go. check_qualification makes that call. Never make it on your 
 judgment.
 
 {{SCREENING_QUESTIONS}}
+
+${LIFE_SAFETY_BLOCK}
 
 WHEN TO ESCALATE — call the escalate tool, don't try to handle it yourself:
 - They ask to speak to a human, and you haven't already tried once to help — the second

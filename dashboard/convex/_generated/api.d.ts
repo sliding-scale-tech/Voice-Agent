@@ -32,6 +32,7 @@ import type * as orgSettings from "../orgSettings.js";
 import type * as otlp from "../otlp.js";
 import type * as places from "../places.js";
 import type * as placesApi from "../placesApi.js";
+import type * as promptMigration from "../promptMigration.js";
 import type * as properties from "../properties.js";
 import type * as qualifications from "../qualifications.js";
 import type * as qualifyRules from "../qualifyRules.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   otlp: typeof otlp;
   places: typeof places;
   placesApi: typeof placesApi;
+  promptMigration: typeof promptMigration;
   properties: typeof properties;
   qualifications: typeof qualifications;
   qualifyRules: typeof qualifyRules;

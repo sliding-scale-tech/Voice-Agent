@@ -787,6 +787,9 @@ http.route({
         category: "emergency",
         severity: 10,
         severityReason: "Escalated directly to a human as an urgent tenant issue.",
+        // A fallback, not an overwrite: if Sarah already logged this call the row she wrote is
+        // more specific than anything reconstructable here, so it wins.
+        onlyIfAbsent: true,
       });
     }
 

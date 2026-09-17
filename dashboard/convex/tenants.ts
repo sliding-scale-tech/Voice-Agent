@@ -101,9 +101,15 @@ export const logIssue = internalMutation({
     category: v.optional(v.string()),
     severity: v.number(),
     severityReason: v.optional(v.string()),
+    // Set by the escalate handler's safety net, which only needs a row to EXIST so the call is
+    // classified as a resident call. Without this it reused the normal upsert and overwrote a
+    // row Sarah had already written from log_tenant_issue -- replacing her reason, her unit and
+    // her severity with the escalation's coarser values, so every escalated 8 or 9 was rewritten
+    // to a 10 with boilerplate text.
+    onlyIfAbsent: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { elevenLabsConversationId, severity, ...fields } = args;
+    const { elevenLabsConversationId, severity, onlyIfAbsent, ...fields } = args;
     const now = Date.now();
 
     const existing = await ctx.db
@@ -139,6 +145,8 @@ export const logIssue = internalMutation({
         q.eq("elevenLabsConversationId", elevenLabsConversationId),
       )
       .first();
+
+    if (existing && onlyIfAbsent) return existing._id;
 
     if (existing) {
       // Was created before conv existed (a phone call's first mid-call tool invocation) and
