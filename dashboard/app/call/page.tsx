@@ -106,6 +106,16 @@ function CallScreen() {
         isFinal: true,
       });
     },
+    // The only reliable end-of-call signal: fires for every disconnection path (the user
+    // hanging up, the agent ending the call, a dropped network, a WebRTC failure) — not just
+    // the explicit stop button. Without this, a call that doesn't end cleanly through handleStop
+    // stays "active" with no duration forever, since production has no post-call webhook to
+    // reconcile it after the fact. `end` is idempotent (a no-op once already ended), so this
+    // running alongside handleStop's own call is harmless.
+    onDisconnect: () => {
+      const id = conversationIdRef.current;
+      if (id) void endConversation({ conversationId: id, status: "ended" });
+    },
     onError: (message: unknown) => {
       setError(typeof message === "string" ? message : "The conversation hit an error.");
     },
@@ -166,8 +176,15 @@ function CallScreen() {
       const id = conversationIdRef.current;
       if (id) void endConversation({ conversationId: id, status: "ended" });
     };
+    // beforeunload alone misses mobile Safari (tab close/backgrounding rarely fires it) and any
+    // async work it starts can be torn down mid-flight; pagehide fires in both of those cases
+    // too, so both are wired to the same best-effort call.
     window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
+    window.addEventListener("pagehide", onUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("pagehide", onUnload);
+    };
   }, [endConversation]);
 
   const heroSubtitle = connected
