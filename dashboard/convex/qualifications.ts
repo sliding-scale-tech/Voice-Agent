@@ -92,6 +92,21 @@ export const upsertByConversationId = internalMutation({
       patch.nearMiss = fields.nearMiss;
     }
 
+    // Link to the call's own conversations row the moment it's available, rather than waiting
+    // on the post-call webhook's linkConversation — reliable for a browser call (that row
+    // exists from the start), and a safety net for a phone call whose row appeared since a
+    // previous check_qualification/request_tour call on the same conversation.
+    const needsConversationId = !existing || !existing.conversationId;
+    const conv = needsConversationId
+      ? await ctx.db
+          .query("conversations")
+          .withIndex("by_elevenlabs_conversation_id", (q) =>
+            q.eq("elevenLabsConversationId", elevenLabsConversationId),
+          )
+          .first()
+      : null;
+    if (conv && needsConversationId) patch.conversationId = conv._id;
+
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       return existing._id;

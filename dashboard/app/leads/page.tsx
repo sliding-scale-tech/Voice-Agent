@@ -19,6 +19,7 @@ import {
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { Dropdown } from "@/components/ui/dropdown";
 
 function formatDuration(seconds?: number) {
   if (seconds === undefined) return "—";
@@ -36,6 +37,11 @@ const INTENT_FILTER_OPTIONS = Object.entries(INTENT_LABELS).filter(
   ([value]) => value !== "maintenance",
 );
 
+const INTENT_DROPDOWN_OPTIONS = [
+  { value: "all", label: "All intents" },
+  ...INTENT_FILTER_OPTIONS.map(([value, label]) => ({ value, label })),
+];
+
 const OUTCOME_STYLES: Record<string, string> = {
   tour_booked: "bg-emerald-50 text-emerald-600",
   disqualified: "bg-amber-50 text-amber-700",
@@ -49,6 +55,11 @@ const OUTCOME_LABELS: Record<string, string> = {
   escalated: "Escalated",
   logged_only: "Logged only",
 };
+
+const OUTCOME_DROPDOWN_OPTIONS = [
+  { value: "all", label: "All outcomes" },
+  ...Object.entries(OUTCOME_LABELS).map(([value, label]) => ({ value, label })),
+];
 
 type CallRow = {
   _id: Id<"conversations">;
@@ -153,30 +164,18 @@ export default function LeadsPage() {
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="flex flex-wrap gap-3">
-            <select
+            <Dropdown
               value={intentFilter}
-              onChange={(event) => setIntentFilter(event.target.value)}
-              className="h-10 min-w-32 rounded-lg border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-            >
-              <option value="all">All intents</option>
-              {INTENT_FILTER_OPTIONS.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={setIntentFilter}
+              options={INTENT_DROPDOWN_OPTIONS}
+              buttonClassName="h-10 min-w-32"
+            />
+            <Dropdown
               value={outcomeFilter}
-              onChange={(event) => setOutcomeFilter(event.target.value)}
-              className="h-10 min-w-36 rounded-lg border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-            >
-              <option value="all">All outcomes</option>
-              {Object.entries(OUTCOME_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              onChange={setOutcomeFilter}
+              options={OUTCOME_DROPDOWN_OPTIONS}
+              buttonClassName="h-10 min-w-36"
+            />
           </div>
           <div className="flex gap-2">
             <label className="relative block min-w-0 flex-1 sm:w-60">

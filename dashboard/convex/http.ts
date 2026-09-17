@@ -770,6 +770,26 @@ http.route({
       escalatedTo: notified ? staffNumber! : "unassigned",
     });
 
+    // A resident emergency (fire, gas leak, break-in) is escalated straight away rather than
+    // going through log_tenant_issue first — that's by design, so the agent doesn't stop to ask
+    // triage questions while someone's building is on fire. But without a tenantIssues row this
+    // call has nothing to make isResidentCall recognise it as a resident call, so it fell into
+    // the Leads list instead of the Tenants page. Logging it here, at max severity, is what puts
+    // it on the right page.
+    if (reason === "urgent_tenant_issue") {
+      await ctx.runMutation(internal.tenants.logIssue, {
+        elevenLabsConversationId: conversationId,
+        callerName,
+        unit: livingArea,
+        callerNumber: realPhone(callerPhone),
+        callbackNumber: realPhone(callerPhone),
+        reason: summary ?? "Escalated as an urgent tenant issue.",
+        category: "emergency",
+        severity: 10,
+        severityReason: "Escalated directly to a human as an urgent tenant issue.",
+      });
+    }
+
     return Response.json({ escalated: true, staff_notified: notified });
   }),
 });

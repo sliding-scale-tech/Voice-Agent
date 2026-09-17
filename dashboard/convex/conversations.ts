@@ -12,6 +12,14 @@ import { currentOrg } from "./authz";
 // anymore. Re-enable by uncommenting this and the limitSec/remainingSec fields below.
 // export const MONTHLY_LIMIT_SEC = 15 * 60;
 
+// A real call here runs a few minutes at most (see leadScoring/tour-length assumptions
+// elsewhere) — anything still "active" this long after it started didn't end cleanly: a
+// crashed tab, a dropped connection before onDisconnect fired, or (on phone calls, or in an
+// environment where the post-call webhook isn't reaching this deployment) no reconciliation
+// ever arriving at all. reconcileStaleActive below is the last-resort net under both the
+// client-side end() calls and the webhook, so nothing shows as an open call forever.
+const STALE_ACTIVE_MS = 30 * 60 * 1000;
+
 function monthKey(at: number) {
   const d = new Date(at);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -625,6 +633,41 @@ export const ingestFromWebhook = internalMutation({
         .first();
       if (row) await ctx.db.patch(row._id, { secondsUsed: row.secondsUsed + durationSec });
       else await ctx.db.insert("usage", { monthKey: key, secondsUsed: durationSec });
+    }
+  },
+});
+
+/**
+ * Cron safety net (see crons.ts). Closes out any conversation still "active" long after it
+ * must have actually ended, with a best-effort duration — capped at STALE_ACTIVE_MS rather than
+ * "now", since a cron that runs every few minutes would otherwise inflate durationSec by however
+ * long the row sat unnoticed. Marked "failed" rather than "ended": we don't know it wrapped up
+ * cleanly, and callsHandled/history should still count it, just not read as a normal call.
+ */
+export const reconcileStaleActive = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - STALE_ACTIVE_MS;
+    const stale = await ctx.db
+      .query("conversations")
+      .withIndex("by_started", (q) => q.lt("startedAt", cutoff))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+
+    for (const conv of stale) {
+      const endedAt = conv.startedAt + STALE_ACTIVE_MS;
+      const durationSec = Math.round(STALE_ACTIVE_MS / 1000);
+      await ctx.db.patch(conv._id, { endedAt, durationSec, status: "failed" });
+
+      if (conv.channel === "phone") {
+        const key = monthKey(conv.startedAt);
+        const row = await ctx.db
+          .query("usage")
+          .withIndex("by_month", (q) => q.eq("monthKey", key))
+          .first();
+        if (row) await ctx.db.patch(row._id, { secondsUsed: row.secondsUsed + durationSec });
+        else await ctx.db.insert("usage", { monthKey: key, secondsUsed: durationSec });
+      }
     }
   },
 });

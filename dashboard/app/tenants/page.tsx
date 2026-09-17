@@ -17,6 +17,7 @@ import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useToast } from "@/components/toast";
+import { Dropdown } from "@/components/ui/dropdown";
 import { SEVERITY_RUBRIC, severityBand, type SeverityBand } from "@/convex/severity";
 
 const SEVERITY_STYLES: Record<SeverityBand, string> = {
@@ -30,6 +31,17 @@ const SEVERITY_LABELS: Record<SeverityBand, string> = {
   medium: "Medium (4-6)",
   low: "Low (1-3)",
 };
+
+const SEVERITY_DROPDOWN_OPTIONS = [
+  { value: "all", label: "All severities" },
+  ...Object.entries(SEVERITY_LABELS).map(([value, label]) => ({ value, label })),
+];
+
+const STATUS_DROPDOWN_OPTIONS = [
+  { value: "open", label: "Open" },
+  { value: "resolved", label: "Resolved" },
+  { value: "all", label: "All" },
+];
 
 const inputClass =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring";
@@ -128,27 +140,18 @@ export default function TenantsPage() {
       )}
 
       <div className="flex flex-wrap gap-2">
-        <select
+        <Dropdown
           value={severityFilter}
-          onChange={(e) => setSeverityFilter(e.target.value)}
-          className="rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm"
-        >
-          <option value="all">All severities</option>
-          {Object.entries(SEVERITY_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
+          onChange={setSeverityFilter}
+          options={SEVERITY_DROPDOWN_OPTIONS}
+          buttonClassName="h-10 min-w-40"
+        />
+        <Dropdown
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm"
-        >
-          <option value="open">Open</option>
-          <option value="resolved">Resolved</option>
-          <option value="all">All</option>
-        </select>
+          onChange={setStatusFilter}
+          options={STATUS_DROPDOWN_OPTIONS}
+          buttonClassName="h-10 min-w-28"
+        />
       </div>
 
       {filtered?.length === 0 && (

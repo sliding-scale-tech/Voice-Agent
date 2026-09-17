@@ -129,11 +129,6 @@ export const logIssue = internalMutation({
       if (value !== undefined) patch[key] = value;
     }
 
-    if (existing) {
-      await ctx.db.patch(existing._id, patch);
-      return existing._id;
-    }
-
     // Resolves the owner from the call's own conversations row, exactly like the qualification
     // side of the same tool call — reliable for a browser call (that row exists from the
     // start), not yet for a phone call's first mid-call tool invocation. linkConversation below
@@ -145,9 +140,20 @@ export const logIssue = internalMutation({
       )
       .first();
 
+    if (existing) {
+      // Was created before conv existed (a phone call's first mid-call tool invocation) and
+      // never got backfilled because the post-call webhook never ran — a second log_tenant_issue
+      // call in the same conversation, or a browser call where conv now exists, catches it here
+      // instead of leaving the transcript stuck behind linkConversation forever.
+      if (conv && !existing.conversationId) patch.conversationId = conv._id;
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+
     return ctx.db.insert("tenantIssues", {
       userId: conv?.userId,
       orgId: conv?.orgId,
+      conversationId: conv?._id,
       elevenLabsConversationId,
       reason: args.reason,
       severity: clampSeverity(severity),
