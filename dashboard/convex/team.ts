@@ -188,6 +188,7 @@ export const invite = action({
       to: email,
       subject: `You have been invited to ${created.orgName}`,
       html: inviteEmailHtml(created.orgName, link),
+      text: inviteEmailText(created.orgName, link),
     });
 
     return { email };
@@ -429,21 +430,110 @@ export async function sha256(value: string): Promise<string> {
     .join("");
 }
 
+/*
+ * Theme tokens mirrored from app/globals.css, hardcoded because email has no CSS variables:
+ *   slate-50 #f8fafc (page)   white #ffffff (card)     slate-200 #e2e8f0 (border)
+ *   slate-900 #0f172a (text)  slate-500 #64748b (body) slate-400 #94a3b8 (footnote)
+ *   blue-600 #2563eb (primary)                         --radius 0.75rem -> 12px
+ * Geist is deliberately not used: email clients cannot load webfonts, so the system stack
+ * is the closest thing that renders everywhere.
+ */
+const EMAIL = {
+  page: "#f8fafc",
+  card: "#ffffff",
+  border: "#e2e8f0",
+  heading: "#0f172a",
+  body: "#64748b",
+  subtle: "#94a3b8",
+  primary: "#2563eb",
+  radius: "12px",
+  font: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
+} as const;
+
+/*
+ * Absolute and pinned to production on purpose — not appBaseUrl(). On the dev deployment that
+ * helper returns http://localhost:3000, which resolves to the *recipient's* machine and shows a
+ * broken image, so test invites sent from dev would look broken to whoever received them.
+ */
+const LOGO_URL = "https://www.simplr.pro/brand/simplr-logo.png";
+
+/*
+ * Table-based rather than divs: Outlook renders through Word's HTML engine, which ignores
+ * max-width and margin:auto on a div and would left-align the whole message.
+ */
 function inviteEmailHtml(orgName: string, link: string): string {
+  const org = escapeHtml(orgName);
   return `
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#0f172a">
-      <h1 style="font-size:20px;font-weight:700;margin:0 0 12px">You have been invited to ${escapeHtml(orgName)}</h1>
-      <p style="font-size:14px;line-height:22px;color:#475569;margin:0 0 24px">
-        Join the team to share the same AI leasing assistant, property details, knowledge base and leads.
-      </p>
-      <a href="${link}" style="display:inline-block;background:#2563EB;color:#fff;font-size:14px;font-weight:600;text-decoration:none;padding:12px 24px;border-radius:10px">
-        Accept invitation
-      </a>
-      <p style="font-size:12px;line-height:20px;color:#94a3b8;margin:24px 0 0">
-        This link expires in 7 days and can only be used once. If you were not expecting it, you can ignore this email.
-      </p>
-    </div>
+<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background:${EMAIL.page}">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${EMAIL.page}" style="background:${EMAIL.page};padding:40px 16px">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="width:480px;max-width:100%">
+            <tr>
+              <td align="left" style="padding:0 4px 20px">
+                <img src="${LOGO_URL}" alt="Simplr" width="104" height="36" style="display:block;width:104px;height:36px;border:0" />
+              </td>
+            </tr>
+            <tr>
+              <td bgcolor="${EMAIL.card}" style="background:${EMAIL.card};border:1px solid ${EMAIL.border};border-radius:${EMAIL.radius};padding:32px">
+                <h1 style="font-family:${EMAIL.font};font-size:20px;line-height:28px;font-weight:700;color:${EMAIL.heading};margin:0 0 12px">
+                  You have been invited to ${org}
+                </h1>
+                <p style="font-family:${EMAIL.font};font-size:14px;line-height:22px;color:${EMAIL.body};margin:0 0 24px">
+                  Join the team to share the same AI leasing assistant, property details, knowledge base and leads.
+                </p>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td bgcolor="${EMAIL.primary}" style="background:${EMAIL.primary};border-radius:${EMAIL.radius}">
+                      <a href="${link}" style="display:inline-block;font-family:${EMAIL.font};font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:${EMAIL.radius}">
+                        Accept invitation
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="font-family:${EMAIL.font};font-size:12px;line-height:20px;color:${EMAIL.body};margin:24px 0 0">
+                  Or paste this link into your browser:<br />
+                  <a href="${link}" style="color:${EMAIL.primary};text-decoration:none;word-break:break-all">${link}</a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 4px 0">
+                <p style="font-family:${EMAIL.font};font-size:12px;line-height:20px;color:${EMAIL.subtle};margin:0">
+                  This link expires in 7 days and can only be used once. If you were not expecting it, you can ignore this email.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
   `;
+}
+
+/*
+ * The plain-text half of the multipart message. Not a nicety: an HTML-only transactional email
+ * scores badly with spam filters, which expect both parts. Kept in step with the HTML above —
+ * same wording, same link, no escaping (text/plain has no markup to escape).
+ */
+function inviteEmailText(orgName: string, link: string): string {
+  return [
+    `You have been invited to ${orgName}`,
+    "",
+    "Join the team to share the same AI leasing assistant, property details, knowledge base and leads.",
+    "",
+    "Accept the invitation:",
+    link,
+    "",
+    "This link expires in 7 days and can only be used once.",
+    "If you were not expecting it, you can ignore this email.",
+    "",
+    "Simplr",
+  ].join("\n");
 }
 
 function escapeHtml(value: string): string {

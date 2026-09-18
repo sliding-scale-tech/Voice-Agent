@@ -1,10 +1,10 @@
 "use client";
 
 import { useClerk, useUser } from "@clerk/nextjs";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { Authenticated, AuthLoading, Unauthenticated, useConvexConnectionState } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TeamGate } from "@/components/team-gate";
 import { isPublicPath } from "@/lib/public-routes";
@@ -21,7 +21,7 @@ export function AppChrome({ children }: { children: ReactNode }) {
   return (
     <>
       <AuthLoading>
-        <FullPageSpinner />
+        <PendingAuth />
       </AuthLoading>
       <Authenticated>
         <TeamGate>
@@ -39,6 +39,56 @@ function FullPageSpinner() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background">
       <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    </div>
+  );
+}
+
+const CONNECTION_WATCHDOG_MS = 12_000;
+
+/**
+ * <AuthLoading> covers Clerk resolving *and* Convex opening its WebSocket — auth state depends
+ * on a live connection to check. Most of the time that's near-instant and this never gets past
+ * the spinner. But when something between the browser and Convex kills long-lived WebSocket
+ * connections (a firewall, VPN, or public wifi — ordinary HTTPS requests go through fine on
+ * those, so sign-in itself succeeds), the client retries with backoff forever and this state
+ * never resolves either way. Same shape as the /sso-callback stall: a real failure with nothing
+ * to distinguish it from work still in progress, so give it the same kind of way out.
+ */
+function PendingAuth() {
+  const [stalled, setStalled] = useState(false);
+  const connection = useConvexConnectionState();
+
+  useEffect(() => {
+    const timer = setTimeout(() => setStalled(true), CONNECTION_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!stalled) {
+    return <FullPageSpinner />;
+  }
+
+  const isBlocked = !connection.hasEverConnected && connection.connectionRetries > 0;
+
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+        <h1 className="text-lg font-semibold">Trouble connecting</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {isBlocked
+            ? "We can't reach Simplr's live connection. A firewall, VPN, or public Wi-Fi network is often the cause — try another network, or turn off any VPN, then retry."
+            : "This is taking longer than expected. Check your internet connection and retry."}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-5 inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+        >
+          Retry
+        </button>
+        {/* Named so a stuck user can read it back to us; Convex surfaces nothing itself here. */}
+        <p className="mt-4 text-xs text-muted-foreground">
+          Reference: connected {String(connection.hasEverConnected)}, retries {connection.connectionRetries}
+        </p>
+      </div>
     </div>
   );
 }

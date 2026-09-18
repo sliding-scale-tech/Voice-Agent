@@ -18,6 +18,15 @@ function escapeHtml(text: string): string {
  * layout in an email body. Colors and radii are pulled from landing.css's own palette so the
  * email reads as the same product as the page the call happened on.
  */
+/*
+ * Plain-text half of the multipart message — see the note on sendEmail in resendApi.ts. A
+ * transcript is a conversation, so it reads perfectly well as speaker-labelled lines.
+ */
+function renderTranscriptText(messages: Array<{ role: "user" | "agent"; text: string }>): string {
+  const lines = messages.map((m) => `${m.role === "agent" ? "AI Receptionist" : "You"}: ${m.text}`);
+  return ["Your Simplr demo call transcript", "", ...lines, "", "Simplr"].join("\n");
+}
+
 function renderTranscriptEmail(messages: Array<{ role: "user" | "agent"; text: string }>): string {
   const bubbles = messages
     .map((m) => {
@@ -107,6 +116,9 @@ export const send = internalAction({
       to: rating.email,
       subject: "Your Simplr demo call transcript",
       html,
+      text: renderTranscriptText(
+        transcript.filter((m) => m.isFinal).map((m) => ({ role: m.role, text: m.text })),
+      ),
     });
   },
 });
