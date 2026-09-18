@@ -1,10 +1,10 @@
 "use client";
 
 import { useClerk, useUser } from "@clerk/nextjs";
-import { Authenticated, AuthLoading } from "convex/react";
+import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TeamGate } from "@/components/team-gate";
 import { isPublicPath } from "@/lib/public-routes";
@@ -21,17 +21,42 @@ export function AppChrome({ children }: { children: ReactNode }) {
   return (
     <>
       <AuthLoading>
-        <div className="flex min-h-dvh items-center justify-center bg-background">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </div>
+        <FullPageSpinner />
       </AuthLoading>
       <Authenticated>
         <TeamGate>
           <SignedInShell>{children}</SignedInShell>
         </TeamGate>
       </Authenticated>
+      <Unauthenticated>
+        <SignedOutRedirect />
+      </Unauthenticated>
     </>
   );
+}
+
+function FullPageSpinner() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    </div>
+  );
+}
+
+/**
+ * Convex reaching `unauthenticated` on a protected route is a real state, not an impossible one:
+ * a token refresh that fails, or a session ended in another tab. With only <AuthLoading> and
+ * <Authenticated> above it, that combination rendered nothing at all — a blank page with no way
+ * out — for the same reason a signed-out visitor did before the route list was unified.
+ */
+function SignedOutRedirect() {
+  const { redirectToSignIn } = useClerk();
+
+  useEffect(() => {
+    void redirectToSignIn();
+  }, [redirectToSignIn]);
+
+  return <FullPageSpinner />;
 }
 
 function SignedInShell({ children }: { children: ReactNode }) {
@@ -47,20 +72,12 @@ function SignedInShell({ children }: { children: ReactNode }) {
   const { redirectToSignIn } = useClerk();
 
   if (!isLoaded) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
+    return <FullPageSpinner />;
   }
 
   if (!isSignedIn) {
     void redirectToSignIn();
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
+    return <FullPageSpinner />;
   }
 
   return (

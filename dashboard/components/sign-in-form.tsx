@@ -4,7 +4,7 @@ import { useAuth, useSignIn } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AuthDivider,
   AuthShell,
@@ -28,6 +28,39 @@ export function SignInForm() {
 
   const busy = fetchStatus === "fetching";
 
+  /**
+   * Sends whichever code the pending second factor actually needs.
+   *
+   * `needs_client_trust` reports no supported factors at all — it is Clerk asking us to verify
+   * an unfamiliar device, not a second factor the user has enrolled — so an empty list means
+   * email, not "nothing to send". Authenticator apps and backup codes are the one case with
+   * nothing to send: the code already exists on the user's device.
+   */
+  const prepareSecondFactor = useCallback(async () => {
+    if (!signIn) return;
+    const factors = signIn.supportedSecondFactors ?? [];
+    if (factors.length === 0 || factors.some((factor) => factor.strategy === "email_code")) {
+      await signIn.mfa.sendEmailCode();
+      return;
+    }
+    if (factors.some((factor) => factor.strategy === "phone_code")) {
+      await signIn.mfa.sendPhoneCode();
+    }
+  }, [signIn]);
+
+  /**
+   * Google sign-in from a new device arrives here already in `needs_client_trust`, with nothing
+   * having sent the code — clerk-js has no branch for this status in its OAuth callback, so it
+   * routes the user to `signInUrl` and leaves the verification to us. Without this the screen
+   * below asked for a code that was never going to arrive.
+   */
+  const codeRequested = useRef(false);
+  useEffect(() => {
+    if (signIn?.status !== "needs_client_trust" || codeRequested.current) return;
+    codeRequested.current = true;
+    void prepareSecondFactor();
+  }, [signIn?.status, prepareSecondFactor]);
+
   const handlePassword = async (formData: FormData) => {
     const emailAddress = String(formData.get("email") ?? email);
     const password = String(formData.get("password") ?? "");
@@ -36,12 +69,8 @@ export function SignInForm() {
     await signIn.password({ emailAddress, password });
 
     if (signIn.status === "needs_second_factor") {
-      const factors = signIn.supportedSecondFactors ?? [];
-      if (factors.some((factor) => factor.strategy === "email_code")) {
-        await signIn.mfa.sendEmailCode();
-      } else if (factors.some((factor) => factor.strategy === "phone_code")) {
-        await signIn.mfa.sendPhoneCode();
-      }
+      codeRequested.current = true;
+      await prepareSecondFactor();
     }
 
     if (signIn.status === "complete") {
@@ -114,7 +143,11 @@ export function SignInForm() {
     return (
       <AuthShell
         title="Verify it’s you"
-        subtitle="Enter the verification code to finish signing in."
+        subtitle={
+          signIn.status === "needs_client_trust"
+            ? "You are signing in from a new device. Enter the code we emailed you to continue."
+            : "Enter the verification code to finish signing in."
+        }
       >
         <form action={handleSecondFactor} className="space-y-4">
           <GlobalErrors messages={errors?.global?.map((error) => error.message)} />
@@ -139,6 +172,13 @@ export function SignInForm() {
             Verify
           </button>
         </form>
+        <button
+          type="button"
+          onClick={() => void prepareSecondFactor()}
+          className="mt-4 text-sm text-muted-foreground hover:text-foreground hover:underline"
+        >
+          I need a new code
+        </button>
       </AuthShell>
     );
   }
