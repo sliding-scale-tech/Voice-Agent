@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://simplr.slidingscale.xyz/sitemap.xml

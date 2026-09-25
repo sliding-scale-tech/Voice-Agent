@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://leaseops.slidingscale.xyz/sitemap.xml
