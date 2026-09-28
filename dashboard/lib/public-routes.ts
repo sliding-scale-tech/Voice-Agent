@@ -15,6 +15,14 @@ export const PUBLIC_ROUTE_PREFIXES = [
   // Google OAuth verification requires these to be reachable without an account.
   "/privacy",
   "/terms",
+  // The simplr.pro marketing site's "watch it answer a call" page, reached via proxy.ts's
+  // host-based rewrite of simplr.pro's own "/demo" to /simplr-landing/demo. No gated route is
+  // named /demo, so this doesn't expose anything.
+  "/demo",
+  // The internal route the rewrite targets — irrelevant to real visitors (who only ever see "/"
+  // and "/demo"), kept public so it's reachable directly too, e.g. in local dev without the
+  // host-based rewrite in front of it.
+  "/simplr-landing",
 ] as const;
 
 /** Matcher patterns for Clerk's createRouteMatcher, plus the bare landing page. */
