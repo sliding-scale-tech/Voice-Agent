@@ -11,7 +11,14 @@ import {
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { appBaseUrl } from "./appUrl";
-import { currentOrg, requireOrgAdmin, requireOrgId, requireUser, currentUser } from "./authz";
+import {
+  currentOrg,
+  requireOrgAdmin,
+  requireOrgId,
+  requireUser,
+  currentUser,
+  tenantOrgId,
+} from "./authz";
 import * as el from "./elevenLabsApi";
 import { sendEmail } from "./resendApi";
 
@@ -310,8 +317,9 @@ export const redeemInvite = internalMutation({
 });
 
 /**
- * Gives a brand-new account a team of its own, with them as admin, and schedules that team's
- * setup (agent, property, knowledge — agents.ensure) so it is ready before they open a page.
+ * Single-tenant: puts a brand-new account into the one shared team as a member. Only on a fresh
+ * install, when no team exists yet, does it create the team with this account as admin and
+ * schedule its setup (agent, property, knowledge — agents.ensure).
  * Scheduled rather than awaited: it calls ElevenLabs and takes seconds, and the Clerk webhook
  * that calls this must answer quickly or Clerk retries it. Scheduling in this same mutation
  * means the team and its setup are committed together — never a team whose setup was dropped.
@@ -346,6 +354,19 @@ export const ensureTeamForUser = internalMutation({
         (i) => !i.acceptedAt && !i.revokedAt && i.expiresAt > Date.now(),
       );
       if (live) return;
+    }
+
+    // Single-tenant: once the team exists, every new account joins it as a member. Only the
+    // very first account (fresh install) falls through to create the team and become its admin.
+    const tenant = await tenantOrgId(ctx);
+    if (tenant) {
+      await ctx.db.insert("memberships", {
+        orgId: tenant,
+        userId: args.userId,
+        role: "member",
+        createdAt: Date.now(),
+      });
+      return;
     }
 
     const now = Date.now();
@@ -664,22 +685,39 @@ export const purgePlan = internalQuery({
       email: user.email ?? null,
       role: membership?.role ?? null,
       orgId: membership?.orgId ?? null,
-      // An admin owns the team, and there is no ownership transfer — so removing them takes the
-      // team with it. A member only loses their own seat.
-      deletesTeam: membership?.role === "admin",
+      // Single-tenant: the team is shared by everyone, so removing any one person — admin or
+      // not — only frees their seat. Tear the team down deliberately with purgeOrg instead.
+      deletesTeam: false,
     };
   },
 });
+
+/** If the team has members but no admin, promotes the longest-standing member. */
+export async function promoteIfNoAdmin(ctx: MutationCtx, orgId: Id<"organizations">) {
+  const rest = await ctx.db
+    .query("memberships")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .collect();
+  if (rest.length > 0 && !rest.some((r) => r.role === "admin")) {
+    const next = rest.reduce((a, b) => (a.createdAt <= b.createdAt ? a : b));
+    await ctx.db.patch(next._id, { role: "admin" });
+  }
+}
 
 /** Deletes the user row plus anything keyed to them that a team deletion did not already take. */
 export const deleteUserRows = internalMutation({
   args: { userId: v.id("users"), email: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    for (const m of await ctx.db
+    const removed = await ctx.db
       .query("memberships")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .collect()) {
-      await ctx.db.delete(m._id);
+      .collect();
+    for (const m of removed) await ctx.db.delete(m._id);
+
+    // Single-tenant has one team and no ownership transfer, so losing its last admin would lock
+    // everyone out of invites and settings. Promote the longest-standing remaining member.
+    for (const m of removed.filter((r) => r.role === "admin")) {
+      await promoteIfNoAdmin(ctx, m.orgId);
     }
 
     // Invitations addressed to them. Left behind, a live one would make ensureTeamForUser skip
@@ -710,9 +748,8 @@ export const deleteUserRows = internalMutation({
 /**
  * Removes a person completely, so the same email can be invited fresh afterwards.
  *
- * An admin's deletion takes their team and everything it owns with it — there is no ownership
- * transfer, so the alternative is a team nobody can administer. A member's deletion only frees
- * their seat.
+ * Single-tenant: deleting anyone, admin or member, only frees their seat. The shared team, its
+ * data and its ElevenLabs agent are never deleted here (use purgeOrg for that, deliberately).
  *
  * An action rather than a mutation because the ElevenLabs agent, knowledge-base documents and
  * RAG indexes have to be deleted over the network; leaving those behind is what makes a

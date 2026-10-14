@@ -109,6 +109,24 @@ export async function requireOrgAdmin(ctx: QueryCtx | MutationCtx): Promise<OrgC
   return org;
 }
 
+/**
+ * The single team this deployment serves. Single-tenant: every account joins this one org.
+ *
+ * Chosen as the org that owns the oldest agent — the row the landing demo, unresolved-call
+ * fallbacks and the bootstrap template already treat as "the" agent — so all of those stay
+ * pointed at the same team. Falls back to the oldest org on a fresh install, in the gap between
+ * the first sign-up creating the org and agents.ensure creating its agent.
+ */
+export async function tenantOrgId(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Id<"organizations"> | null> {
+  const agent = await ctx.db.query("agents").first();
+  const fromAgent = agent ? ctx.db.normalizeId("organizations", agent.orgId) : null;
+  if (fromAgent && (await ctx.db.get(fromAgent))) return fromAgent;
+  const oldest = await ctx.db.query("organizations").order("asc").first();
+  return oldest?._id ?? null;
+}
+
 /** Action-context equivalent of requireOrg — actions have ctx.auth but no ctx.db. */
 export async function requireOrgId(ctx: ActionCtx): Promise<{
   orgId: Id<"organizations">;

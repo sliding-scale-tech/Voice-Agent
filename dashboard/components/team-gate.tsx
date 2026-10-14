@@ -61,10 +61,10 @@ export function TeamGate({ children }: { children: ReactNode }) {
           </>
         ) : (
           <>
-            <h1 className="mt-4 text-lg font-semibold">You are not on a team yet</h1>
+            <h1 className="mt-4 text-lg font-semibold">Setting up your access</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              A team is created automatically when you sign up. If you were invited to one, ask
-              whoever invited you to send the invitation again.
+              Your account is being added to the team. This usually takes a few seconds — refresh
+              the page if it doesn&apos;t update.
             </p>
           </>
         )}

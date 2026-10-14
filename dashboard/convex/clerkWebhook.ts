@@ -71,9 +71,9 @@ export async function handleClerkWebhook(
         imageUrl: user.image_url ?? undefined,
         lastSignInAt: user.last_sign_in_at ?? undefined,
       });
-      // Every account needs a team before the dashboard means anything. A no-op when they
-      // already have one, and deliberately skipped when a live invitation is waiting for this
-      // address — that sign-up belongs in the inviting team, not a fresh one of its own.
+      // Every account needs a team before the dashboard means anything. Single-tenant: joins the
+      // one shared team (or creates it on a fresh install). A no-op when they already have one,
+      // and skipped when a live invitation is waiting — the invite carries the role.
       await ctx.runMutation(internal.team.ensureTeamForUser, { userId });
       break;
     }
@@ -93,9 +93,8 @@ export async function handleClerkWebhook(
     case "user.deleted": {
       const clerkId = event.data?.id;
       if (clerkId) {
-        // Full teardown, not just the users row: an admin owns their team, and leaving it
-        // behind strands its data and its ElevenLabs agent — and blocks the same person from
-        // ever being invited back, since membership is what "already on a team" checks.
+        // Removes only this person's seat (membership, calendar, availability). The shared
+        // team, its data and its ElevenLabs agent stay.
         await ctx.runAction(internal.team.purgeByClerkId, { clerkId });
       }
       break;

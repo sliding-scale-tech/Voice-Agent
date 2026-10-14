@@ -43,6 +43,7 @@ import type * as sanitize from "../sanitize.js";
 import type * as screening from "../screening.js";
 import type * as screeningPrompt from "../screeningPrompt.js";
 import type * as severity from "../severity.js";
+import type * as singleTenantMigration from "../singleTenantMigration.js";
 import type * as smsBot from "../smsBot.js";
 import type * as tasks from "../tasks.js";
 import type * as team from "../team.js";
@@ -101,6 +102,7 @@ declare const fullApi: ApiFromModules<{
   screening: typeof screening;
   screeningPrompt: typeof screeningPrompt;
   severity: typeof severity;
+  singleTenantMigration: typeof singleTenantMigration;
   smsBot: typeof smsBot;
   tasks: typeof tasks;
   team: typeof team;
